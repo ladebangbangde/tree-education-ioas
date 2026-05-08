@@ -1,0 +1,10 @@
+CREATE TABLE operator_profile (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  name VARCHAR(80) NOT NULL,
+  phone VARCHAR(40),
+  team_name VARCHAR(80),
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  INDEX idx_operator_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

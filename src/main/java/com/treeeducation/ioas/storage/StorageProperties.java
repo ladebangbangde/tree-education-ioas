@@ -1,0 +1,1 @@
+package com.treeeducation.ioas.storage; import org.springframework.boot.context.properties.ConfigurationProperties; /** Object storage settings for MinIO now and OSS-compatible production later. */ @ConfigurationProperties(prefix="ioas.storage") public record StorageProperties(String provider,String endpoint,String accessKey,String secretKey,String bucket,String publicBaseUrl){}

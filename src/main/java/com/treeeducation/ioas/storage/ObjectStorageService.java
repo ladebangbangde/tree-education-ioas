@@ -1,0 +1,1 @@
+package com.treeeducation.ioas.storage; import org.springframework.web.multipart.MultipartFile; import java.io.InputStream; /** Stores, retrieves and removes binary file bodies from object storage. */ public interface ObjectStorageService{ StoredObject put(Long packageId, MultipartFile file); InputStream get(String objectKey); void remove(String objectKey); String bucket(); }

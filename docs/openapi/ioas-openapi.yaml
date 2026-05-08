@@ -1,0 +1,259 @@
+openapi: 3.0.3
+info:
+  title: Tree Education IOAS API
+  version: v1
+  description: 与 tree-education-ioas-fronted main 对齐的正式接口契约。
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: 用户名密码登录
+      security: []
+      responses: { '200': { description: accessToken/tokenType/user(role,department,userName) } }
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: 当前用户与权限开关
+      responses: { '200': { description: 当前用户、role、department、permissions } }
+  /api/v1/operators/options:
+    get:
+      tags: [Operator]
+      summary: 运营人员下拉
+      responses: { '200': { description: 运营人员 options } }
+  /api/v1/operators:
+    get:
+      tags: [Operator]
+      summary: 运营人员分页列表，支持 name 查询
+      parameters:
+        - { name: name, in: query, schema: { type: string } }
+        - { name: pageNum, in: query, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, default: 20 } }
+      responses: { '200': { description: 分页运营人员 } }
+  /api/v1/media/content/packages:
+    get:
+      tags: [ContentPackage]
+      summary: 主题包列表
+      parameters:
+        - { name: pageNum, in: query, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, default: 20 } }
+        - { name: keyword, in: query, schema: { type: string } }
+        - { name: operatorId, in: query, schema: { type: integer, format: int64 } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ContentPackageStatus' } }
+        - { name: tab, in: query, schema: { type: string, enum: [mine, draft, record, recycle] } }
+      responses: { '200': { description: id/topicName/operator/fullPath/count/uploadStatus/createdBy 列表 } }
+    post:
+      tags: [ContentPackage]
+      summary: 新建主题包；仅接收 operatorId + topicName
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContentPackageUpsertRequest' }
+      responses: { '200': { description: pending_upload 主题包 } }
+  /api/v1/media/content/packages/{id}:
+    get:
+      tags: [ContentPackage]
+      summary: 主题包详情，files 按 script/video/image 分组
+      parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { description: packageInfo + scripts/videos/images } }
+    put:
+      tags: [ContentPackage]
+      summary: 编辑 operatorId/topicName，并自动重算 fullPath
+      parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContentPackageUpsertRequest' }
+      responses: { '200': { description: 更新后的主题包 } }
+    delete:
+      tags: [ContentPackage]
+      summary: 逻辑删除主题包并将其下文件移入 7 天回收站
+      parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { description: 删除成功 } }
+  /api/v1/media/content/packages/{id}/files:
+    post:
+      tags: [ContentPackage]
+      summary: 按 scripts/videos/images 分组批量上传素材
+      parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      requestBody:
+        required: false
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                scripts: { type: array, items: { type: string, format: binary } }
+                videos: { type: array, items: { type: string, format: binary } }
+                images: { type: array, items: { type: string, format: binary } }
+      responses: { '200': { description: scripts/videos/images 上传结果与刷新后的计数 } }
+  /api/v1/media/assets:
+    get:
+      tags: [AssetFile]
+      summary: 素材列表
+      parameters:
+        - { name: packageId, in: query, schema: { type: integer, format: int64 } }
+        - { name: fileType, in: query, schema: { type: string, enum: [all, script, video, image], default: all } }
+        - { name: pageNum, in: query, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, default: 20 } }
+      responses: { '200': { description: 素材分页列表 } }
+  /api/v1/media/assets/{id}:
+    get:
+      tags: [AssetFile]
+      summary: 单文件详情
+      parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { description: 文件详情 } }
+    delete:
+      tags: [AssetFile]
+      summary: 删除单文件到回收站，刷新主题包计数和 uploadStatus
+      parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { description: 删除成功 } }
+  /api/v1/media/assets/{id}/download:
+    get:
+      tags: [AssetFile]
+      summary: 下载文件
+      parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { description: 文件流 } }
+  /api/v1/media/assets/{id}/preview:
+    get:
+      tags: [AssetFile]
+      summary: 获取 previewUrl
+      parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { description: 预览地址 } }
+  /api/v1/media/assets/recycle-bin:
+    get:
+      tags: [AssetRecycleBin]
+      summary: 文件回收站列表
+      parameters:
+        - { name: keyword, in: query, schema: { type: string } }
+        - { name: fileType, in: query, schema: { type: string, enum: [all, script, video, image] } }
+        - { name: deletedBy, in: query, schema: { type: integer, format: int64 } }
+        - { name: packageId, in: query, schema: { type: integer, format: int64 } }
+        - { name: operatorId, in: query, schema: { type: integer, format: int64 } }
+        - { name: pageNum, in: query, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, default: 20 } }
+      responses: { '200': { description: fileName/fileType/packageTopicName/operator/fullPath/purgeAt/remainSeconds } }
+  /api/v1/media/assets/recycle-bin/{id}/restore:
+    post:
+      tags: [AssetRecycleBin]
+      summary: 恢复单文件
+      parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { description: 已恢复 } }
+  /api/v1/media/assets/recycle-bin/{id}/purge:
+    delete:
+      tags: [AssetRecycleBin]
+      summary: 永久删除单文件
+      parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { description: 已永久删除 } }
+  /api/v1/media/resources/tree:
+    get:
+      tags: [MediaResource]
+      summary: 运营人 -> 主题包 -> script/video/image 目录树
+      responses: { '200': { description: 目录树 } }
+  /api/v1/media/resources/packages:
+    get:
+      tags: [MediaResource]
+      summary: 资源中心主题包卡片列表
+      parameters:
+        - { name: keyword, in: query, schema: { type: string } }
+        - { name: operatorId, in: query, schema: { type: integer, format: int64 } }
+        - { name: pageNum, in: query, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, default: 20 } }
+      responses: { '200': { description: 主题包卡片列表 } }
+  /api/v1/leads:
+    get:
+      tags: [Lead]
+      summary: 线索列表
+      parameters:
+        - { name: tab, in: query, schema: { type: string, enum: [unassigned, assigned, mine] } }
+        - { name: keyword, in: query, schema: { type: string } }
+        - { name: relatedPackageId, in: query, schema: { type: integer, format: int64 } }
+        - { name: operatorId, in: query, schema: { type: integer, format: int64 } }
+        - { name: pageNum, in: query, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, default: 20 } }
+      responses: { '200': { description: 前端线索中心列 } }
+    post:
+      tags: [Lead]
+      summary: 基于主题包创建线索，不强制 assetFileId
+      responses: { '200': { description: 自动生成 leadNo 且默认 unassigned } }
+  /api/v1/leads/{id}:
+    get:
+      tags: [Lead]
+      summary: 线索详情
+      parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { description: 线索详情 } }
+    patch:
+      tags: [Lead]
+      summary: 更新 remark/assignedTo/assignedToName/status
+      parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { description: 已更新 } }
+  /api/v1/leads/{id}/status:
+    patch:
+      tags: [Lead]
+      summary: 更新线索状态
+      parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { description: 已更新状态 } }
+  /api/v1/tasks/media:
+    get:
+      tags: [Task]
+      summary: 媒体任务列表，状态为 MediaTaskStatus
+      responses: { '200': { description: 媒体任务 } }
+  /api/v1/tasks/operator:
+    get:
+      tags: [Task]
+      summary: 运营任务列表，状态为 OperatorTaskStatus
+      responses: { '200': { description: 运营任务 } }
+  /api/v1/tasks/{id}:
+    patch:
+      tags: [Task]
+      summary: 更新任务状态/进度/错误/负责人
+      parameters: [ { name: id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { description: 已更新任务 } }
+  /api/v1/reports/media-output:
+    get:
+      tags: [Report]
+      summary: 媒体报表 scriptTotal/videoTotal/imageTotal/weekPackageCount/monthPackageCount
+      responses: { '200': { description: 媒体报表 } }
+  /api/v1/reports/operator-leads:
+    get:
+      tags: [Report]
+      summary: 运营线索报表 leadTotal/todayNew/weekNew/unassigned/assigned/completed
+      responses: { '200': { description: 运营报表 } }
+  /api/v1/reports/operator/by-package:
+    get:
+      tags: [Report]
+      summary: 线索按主题包统计
+      responses: { '200': { description: relatedPackageId/topicName/count } }
+  /api/v1/reports/operator/trend:
+    get:
+      tags: [Report]
+      summary: 线索趋势数据
+      responses: { '200': { description: date/count 数组 } }
+  /api/v1/audit/logs:
+    get:
+      tags: [Audit]
+      summary: 审计日志列表
+      responses: { '200': { description: 审计日志 } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  schemas:
+    UserRole: { type: string, enum: [SUPER_ADMIN, MEDIA, OPERATOR, CONSULTANT] }
+    ContentPackageStatus: { type: string, enum: [pending_upload, uploading, partial_completed, completed, deleted] }
+    UploadStatus: { type: string, enum: [uploading, success, failed, partial_success, pending_supplement] }
+    AssetFileType: { type: string, enum: [script, video, image] }
+    LeadStatus: { type: string, enum: [unassigned, assigned, following, completed, invalid] }
+    TaskType: { type: string, enum: [media_upload, operator_lead_generate] }
+    TaskRoleType: { type: string, enum: [media, operator] }
+    MediaTaskStatus: { type: string, enum: [uploading, success, failed, partial_success, pending_supplement] }
+    OperatorTaskStatus: { type: string, enum: [pending, processing, completed, overdue, rejected] }
+    ContentPackageUpsertRequest:
+      type: object
+      required: [operatorId, topicName]
+      properties:
+        operatorId: { type: integer, format: int64 }
+        topicName: { type: string }
