@@ -7,9 +7,12 @@ import org.springframework.security.core.userdetails.UserDetails;
 import java.util.Collection;
 import java.util.List;
 
-/** Authenticated user principal. */
-public record UserPrincipal(Long id, String username, String displayName, String roleCode) implements UserDetails {
-    @Override public Collection<? extends GrantedAuthority> getAuthorities() { return List.of(new SimpleGrantedAuthority("ROLE_" + roleCode)); }
+/** Authenticated user principal exposed to controllers. */
+public record UserPrincipal(Long id, String username, String userName, String role, String department) implements UserDetails {
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return List.of(new SimpleGrantedAuthority("ROLE_" + role));
+    }
     @Override public String getPassword() { return ""; }
     @Override public boolean isAccountNonExpired() { return true; }
     @Override public boolean isAccountNonLocked() { return true; }

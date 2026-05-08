@@ -1,0 +1,16 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+  jpa:
+    show-sql: false
+ioas:
+  jwt:
+    secret: ${IOAS_JWT_SECRET:?prod jwt secret required}
+  storage:
+    provider: ${IOAS_STORAGE_PROVIDER:oss}
+    endpoint: ${IOAS_STORAGE_ENDPOINT}
+    access-key: ${IOAS_STORAGE_ACCESS_KEY}
+    secret-key: ${IOAS_STORAGE_SECRET_KEY}
+    bucket: ${IOAS_STORAGE_BUCKET}
+    public-base-url: ${IOAS_STORAGE_PUBLIC_BASE_URL}

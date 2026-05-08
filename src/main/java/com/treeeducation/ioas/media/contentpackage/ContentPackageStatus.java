@@ -2,6 +2,8 @@ package com.treeeducation.ioas.media.contentpackage;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-/** Content package lifecycle status. */
-@Schema(description = "主题包状态")
-public enum ContentPackageStatus { draft, active, archived }
+/** Frontend upload lifecycle status for a content package. */
+@Schema(description = "主题包上传状态")
+public enum ContentPackageStatus {
+    pending_upload, uploading, partial_completed, completed, deleted
+}

@@ -1,34 +1,529 @@
 {
   "openapi": "3.0.3",
-  "info": {"title": "Tree Education IOAS API", "version": "v1", "description": "正式后端接口契约，覆盖认证、运营人员、媒体主题包、素材、资源中心、线索、任务、报表、回收站与审计。"},
-  "servers": [{"url": "http://localhost:8080"}],
-  "security": [{"bearerAuth": []}],
-  "paths": {
-    "/api/v1/auth/login": {"post": {"tags": ["Auth"], "summary": "用户名密码登录", "security": [], "responses": {"200": {"description": "返回 JWT 与当前用户"}}}},
-    "/api/v1/auth/me": {"get": {"tags": ["Auth"], "summary": "获取当前登录用户", "responses": {"200": {"description": "当前用户"}}}},
-    "/api/v1/operators/options": {"get": {"tags": ["Operator Profile"], "summary": "运营人员下拉", "responses": {"200": {"description": "可用运营人员"}}}},
-    "/api/v1/operators": {"get": {"tags": ["Operator Profile"], "summary": "运营人员列表", "responses": {"200": {"description": "分页运营人员"}}}},
-    "/api/v1/media/content/packages": {"get": {"tags": ["Content Package"], "summary": "主题包列表", "responses": {"200": {"description": "分页主题包"}}}, "post": {"tags": ["Content Package"], "summary": "新建主题包", "responses": {"200": {"description": "已创建主题包"}}}},
-    "/api/v1/media/content/packages/{id}": {"get": {"tags": ["Content Package"], "summary": "主题包详情", "responses": {"200": {"description": "主题包详情"}, "404": {"description": "主题包不存在"}}}, "put": {"tags": ["Content Package"], "summary": "编辑主题包", "responses": {"200": {"description": "已更新主题包"}}}, "delete": {"tags": ["Content Package"], "summary": "删除空主题包", "responses": {"200": {"description": "删除成功"}, "400": {"description": "主题包仍包含文件"}}}},
-    "/api/v1/media/assets/packages/{packageId}": {"post": {"tags": ["Asset File"], "summary": "上传文件到主题包；文件不可脱离主题包存在", "responses": {"200": {"description": "已上传素材"}}}},
-    "/api/v1/media/assets": {"get": {"tags": ["Asset File"], "summary": "素材文件列表，可按主题包与类型筛选", "responses": {"200": {"description": "分页素材"}}}},
-    "/api/v1/media/assets/{id}/download": {"get": {"tags": ["Asset File"], "summary": "下载素材文件", "responses": {"200": {"description": "文件流"}}}},
-    "/api/v1/media/assets/{id}/preview": {"get": {"tags": ["Asset File"], "summary": "获取文件预览地址", "responses": {"200": {"description": "预览 URL"}}}},
-    "/api/v1/media/assets/{id}": {"delete": {"tags": ["Asset File"], "summary": "删除单文件到回收站并同步主题包计数", "responses": {"200": {"description": "删除成功"}}}},
-    "/api/v1/media/assets/recycle-bin": {"get": {"tags": ["Asset Recycle Bin"], "summary": "文件回收站列表", "responses": {"200": {"description": "回收站素材"}}}},
-    "/api/v1/media/assets/recycle-bin/{id}/restore": {"post": {"tags": ["Asset Recycle Bin"], "summary": "恢复文件", "responses": {"200": {"description": "已恢复"}}}},
-    "/api/v1/media/assets/recycle-bin/{id}/purge": {"delete": {"tags": ["Asset Recycle Bin"], "summary": "永久删除文件本体与元数据", "responses": {"200": {"description": "已永久删除"}}}},
-    "/api/v1/media/resources/tree": {"get": {"tags": ["Media Resource Center"], "summary": "共享文件池目录树", "responses": {"200": {"description": "目录节点"}}}},
-    "/api/v1/media/resources/files": {"get": {"tags": ["Media Resource Center"], "summary": "资源中心素材筛选", "responses": {"200": {"description": "分页素材"}}}},
-    "/api/v1/leads": {"get": {"tags": ["Lead"], "summary": "线索列表", "responses": {"200": {"description": "分页线索"}}}, "post": {"tags": ["Lead"], "summary": "基于主题包和素材创建线索，并生成运营任务", "responses": {"200": {"description": "已创建线索"}}}},
-    "/api/v1/leads/{id}": {"get": {"tags": ["Lead"], "summary": "线索详情", "responses": {"200": {"description": "线索详情"}}}},
-    "/api/v1/leads/{id}/status": {"patch": {"tags": ["Lead"], "summary": "更新线索状态", "responses": {"200": {"description": "已更新线索"}}}},
-    "/api/v1/tasks/media": {"get": {"tags": ["Task"], "summary": "媒体任务列表", "responses": {"200": {"description": "分页任务"}}}},
-    "/api/v1/tasks/operator": {"get": {"tags": ["Task"], "summary": "运营任务列表", "responses": {"200": {"description": "分页任务"}}}},
-    "/api/v1/tasks/{id}": {"patch": {"tags": ["Task"], "summary": "任务联动更新", "responses": {"200": {"description": "已更新任务"}}}},
-    "/api/v1/reports/media-output": {"get": {"tags": ["Report"], "summary": "媒体产出报表，基于真实入库素材统计", "responses": {"200": {"description": "媒体统计"}}}},
-    "/api/v1/reports/operator-leads": {"get": {"tags": ["Report"], "summary": "运营线索报表，基于真实线索与任务统计", "responses": {"200": {"description": "运营统计"}}}},
-    "/api/v1/audit/logs": {"get": {"tags": ["Audit"], "summary": "审计日志列表", "responses": {"200": {"description": "分页审计日志"}}}}
+  "info": {
+    "title": "Tree Education IOAS API",
+    "version": "v1",
+    "description": "与 tree-education-ioas-fronted main 对齐的正式接口契约。"
   },
-  "components": {"securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}}, "schemas": {"AssetFileType": {"type": "string", "enum": ["script", "video", "image"]}, "ContentPackageStatus": {"type": "string", "enum": ["draft", "active", "archived"]}, "LeadStatus": {"type": "string", "enum": ["new_lead", "contacted", "converted", "invalid"]}, "TaskStatus": {"type": "string", "enum": ["pending", "in_progress", "completed", "cancelled"]}}}
+  "servers": [
+    {
+      "url": "http://localhost:8080"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/api/v1/auth/login": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "Auth"
+        ],
+        "summary": "用户名密码登录"
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "Auth"
+        ],
+        "summary": "当前用户与权限开关"
+      }
+    },
+    "/api/v1/operators/options": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "Operator"
+        ],
+        "summary": "运营人员下拉"
+      }
+    },
+    "/api/v1/operators": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "Operator"
+        ],
+        "summary": "运营人员分页列表，支持 name 查询"
+      }
+    },
+    "/api/v1/media/content/packages": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "ContentPackage"
+        ],
+        "summary": "主题包列表"
+      },
+      "post": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "ContentPackage"
+        ],
+        "summary": "新建主题包；仅接收 operatorId + topicName"
+      }
+    },
+    "/api/v1/media/content/packages/{id}": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "ContentPackage"
+        ],
+        "summary": "主题包详情，files 按 script/video/image 分组"
+      },
+      "put": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "ContentPackage"
+        ],
+        "summary": "编辑 operatorId/topicName，并自动重算 fullPath"
+      },
+      "delete": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "ContentPackage"
+        ],
+        "summary": "逻辑删除主题包并将其下文件移入 7 天回收站"
+      }
+    },
+    "/api/v1/media/content/packages/{id}/files": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "ContentPackage"
+        ],
+        "summary": "按 scripts/videos/images 分组批量上传素材"
+      }
+    },
+    "/api/v1/media/assets": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "AssetFile"
+        ],
+        "summary": "素材列表"
+      }
+    },
+    "/api/v1/media/assets/{id}": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "AssetFile"
+        ],
+        "summary": "单文件详情"
+      },
+      "delete": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "AssetFile"
+        ],
+        "summary": "删除单文件到回收站，刷新主题包计数和 uploadStatus"
+      }
+    },
+    "/api/v1/media/assets/{id}/download": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "AssetFile"
+        ],
+        "summary": "下载文件"
+      }
+    },
+    "/api/v1/media/assets/{id}/preview": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "AssetFile"
+        ],
+        "summary": "获取 previewUrl"
+      }
+    },
+    "/api/v1/media/assets/recycle-bin": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "AssetRecycleBin"
+        ],
+        "summary": "文件回收站列表"
+      }
+    },
+    "/api/v1/media/assets/recycle-bin/{id}/restore": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "AssetRecycleBin"
+        ],
+        "summary": "恢复单文件"
+      }
+    },
+    "/api/v1/media/assets/recycle-bin/{id}/purge": {
+      "delete": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "AssetRecycleBin"
+        ],
+        "summary": "永久删除单文件"
+      }
+    },
+    "/api/v1/media/resources/tree": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "MediaResource"
+        ],
+        "summary": "运营人 -> 主题包 -> script/video/image 目录树"
+      }
+    },
+    "/api/v1/media/resources/packages": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "MediaResource"
+        ],
+        "summary": "资源中心主题包卡片列表"
+      }
+    },
+    "/api/v1/leads": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "Lead"
+        ],
+        "summary": "线索列表"
+      },
+      "post": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "Lead"
+        ],
+        "summary": "基于主题包创建线索，不强制 assetFileId"
+      }
+    },
+    "/api/v1/leads/{id}": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "Lead"
+        ],
+        "summary": "线索详情"
+      },
+      "patch": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "Lead"
+        ],
+        "summary": "更新 remark/assignedTo/assignedToName/status"
+      }
+    },
+    "/api/v1/leads/{id}/status": {
+      "patch": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "Lead"
+        ],
+        "summary": "更新线索状态"
+      }
+    },
+    "/api/v1/tasks/media": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "Task"
+        ],
+        "summary": "媒体任务列表，状态为 MediaTaskStatus"
+      }
+    },
+    "/api/v1/tasks/operator": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "Task"
+        ],
+        "summary": "运营任务列表，状态为 OperatorTaskStatus"
+      }
+    },
+    "/api/v1/tasks/{id}": {
+      "patch": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "Task"
+        ],
+        "summary": "更新任务状态/进度/错误/负责人"
+      }
+    },
+    "/api/v1/reports/media-output": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "Report"
+        ],
+        "summary": "媒体报表 scriptTotal/videoTotal/imageTotal/weekPackageCount/monthPackageCount"
+      }
+    },
+    "/api/v1/reports/operator-leads": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "Report"
+        ],
+        "summary": "运营线索报表 leadTotal/todayNew/weekNew/unassigned/assigned/completed"
+      }
+    },
+    "/api/v1/reports/operator/by-package": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "Report"
+        ],
+        "summary": "线索按主题包统计"
+      }
+    },
+    "/api/v1/reports/operator/trend": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "Report"
+        ],
+        "summary": "线索趋势数据"
+      }
+    },
+    "/api/v1/audit/logs": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "tags": [
+          "Audit"
+        ],
+        "summary": "审计日志列表"
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "UserRole": {
+        "type": "string",
+        "enum": [
+          "SUPER_ADMIN",
+          "MEDIA",
+          "OPERATOR",
+          "CONSULTANT"
+        ]
+      },
+      "ContentPackageStatus": {
+        "type": "string",
+        "enum": [
+          "pending_upload",
+          "uploading",
+          "partial_completed",
+          "completed",
+          "deleted"
+        ]
+      },
+      "UploadStatus": {
+        "type": "string",
+        "enum": [
+          "uploading",
+          "success",
+          "failed",
+          "partial_success",
+          "pending_supplement"
+        ]
+      },
+      "AssetFileType": {
+        "type": "string",
+        "enum": [
+          "script",
+          "video",
+          "image"
+        ]
+      },
+      "LeadStatus": {
+        "type": "string",
+        "enum": [
+          "unassigned",
+          "assigned",
+          "following",
+          "completed",
+          "invalid"
+        ]
+      },
+      "TaskType": {
+        "type": "string",
+        "enum": [
+          "media_upload",
+          "operator_lead_generate"
+        ]
+      },
+      "TaskRoleType": {
+        "type": "string",
+        "enum": [
+          "media",
+          "operator"
+        ]
+      },
+      "MediaTaskStatus": {
+        "type": "string",
+        "enum": [
+          "uploading",
+          "success",
+          "failed",
+          "partial_success",
+          "pending_supplement"
+        ]
+      },
+      "OperatorTaskStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "processing",
+          "completed",
+          "overdue",
+          "rejected"
+        ]
+      }
+    }
+  }
 }

@@ -1,1 +1,12 @@
-package com.treeeducation.ioas.lead; import org.springframework.data.domain.*;import org.springframework.data.jpa.repository.JpaRepository;import java.util.List; public interface LeadRepository extends JpaRepository<Lead,Long>{ Page<Lead> findByPackageId(Long packageId,Pageable pageable); long countByPackageId(Long packageId); long countByOperatorId(Long operatorId); List<Lead> findByPackageId(Long packageId); }
+package com.treeeducation.ioas.lead;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.time.Instant;
+import java.util.List;
+
+public interface LeadRepository extends JpaRepository<Lead, Long> {
+    List<Lead> findByRelatedPackageId(Long relatedPackageId);
+    long countByStatus(LeadStatus status);
+    long countByCreatedAtGreaterThanEqual(Instant createdAt);
+}
