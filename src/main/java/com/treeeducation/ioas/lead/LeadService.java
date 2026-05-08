@@ -39,7 +39,7 @@ public class LeadService {
         l.setLeadNo("LD" + System.currentTimeMillis());
         l.setSourceType(r.sourceType() == null ? "content_package" : r.sourceType());
         l.setRelatedPackageId(cp.getId());
-        l.setOperatorId(r.operatorId());
+        l.setOperatorId(r.operatorId() == null ? cp.getOperatorId() : r.operatorId());
         l.setStudentName(r.studentName());
         l.setPhone(r.phone());
         l.setWechat(r.wechat());
@@ -48,11 +48,16 @@ public class LeadService {
         l.setTargetMajor(r.targetMajor());
         l.setBudget(r.budget());
         l.setDegreeLevel(r.degreeLevel());
+        l.setAssignedTo(r.assignedTo());
+        l.setAssignedToName(r.assignedToName());
         l.setRemark(r.remark());
-        l.setStatus(LeadStatus.unassigned);
+        l.setStatus(r.status() == null ? LeadStatus.unassigned : r.status());
         l = repo.save(l);
-        String assigneeName = r.operatorId() == null ? null : operators.findById(r.operatorId()).map(o -> o.getName()).orElse(null);
-        tasks.createOperatorLeadTask(cp.getId(), l.getId(), r.operatorId(), assigneeName);
+        Long taskAssignee = l.getAssignedTo() == null ? l.getOperatorId() : l.getAssignedTo();
+        String taskAssigneeName = l.getAssignedToName() == null
+                ? (taskAssignee == null ? null : operators.findById(taskAssignee).map(o -> o.getName()).orElse(null))
+                : l.getAssignedToName();
+        tasks.createOperatorLeadTask(cp.getId(), l.getId(), taskAssignee, taskAssigneeName);
         audit(AuditAction.create_lead, "lead", l.getId(), p.id(), l.getStudentName());
         return l;
     }
@@ -80,10 +85,11 @@ public class LeadService {
     }
 
     @Transactional
-    public Lead updateStatus(Long id, LeadStatus status) {
+    public Lead updateStatus(Long id, LeadStatus status, UserPrincipal p) {
         Lead l = get(id);
         l.setStatus(status);
         l.setUpdatedAt(Instant.now());
+        audit(AuditAction.update_lead, "lead", id, p.id(), l.getLeadNo() + ":" + status);
         return l;
     }
 

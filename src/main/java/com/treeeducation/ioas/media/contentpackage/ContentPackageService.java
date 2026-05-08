@@ -75,6 +75,9 @@ public class ContentPackageService {
 
     public ContentPackageDtos.DetailResponse detail(Long id) {
         ContentPackage p = get(id);
+        if (Boolean.TRUE.equals(p.getIsDeleted())) {
+            throw BusinessException.notFound("主题包不存在");
+        }
         List<AssetFileDtos.Response> all = files.findByPackageIdAndIsDeletedFalse(id).stream().map(AssetFileDtos::of).toList();
         return new ContentPackageDtos.DetailResponse(ContentPackageDtos.of(p),
                 all.stream().filter(f -> f.fileType() == AssetFileType.script).toList(),
@@ -83,7 +86,7 @@ public class ContentPackageService {
     }
 
     @Transactional
-    public ContentPackage update(Long id, ContentPackageDtos.UpsertRequest r) {
+    public ContentPackage update(Long id, ContentPackageDtos.UpsertRequest r, UserPrincipal p) {
         ContentPackage cp = get(id);
         var operator = operators.findById(r.operatorId()).orElseThrow(() -> BusinessException.notFound("运营人员不存在"));
         cp.setOperatorId(operator.getId());
@@ -91,6 +94,7 @@ public class ContentPackageService {
         cp.setTopicName(r.topicName());
         cp.setFullPath(buildPath(LocalDate.of(cp.getFolderYear(), cp.getFolderMonth(), cp.getFolderDay()), operator.getName(), r.topicName()));
         cp.setUpdatedAt(Instant.now());
+        audit(AuditAction.update_package, "content_package", id, p.id(), cp.getTopicName());
         return cp;
     }
 

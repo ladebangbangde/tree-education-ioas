@@ -47,9 +47,11 @@ public class ReportController {
     public ApiResponse<ReportDtos.OperatorLead> operator() {
         Instant today = LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant();
         Instant week = LocalDate.now().minusDays(6).atStartOfDay(ZoneOffset.UTC).toInstant();
+        long unassigned = leads.countByStatus(LeadStatus.unassigned);
+        long assigned = leads.countByStatus(LeadStatus.assigned);
+        long completed = leads.countByStatus(LeadStatus.completed);
         return ApiResponse.ok(new ReportDtos.OperatorLead(leads.count(), leads.countByCreatedAtGreaterThanEqual(today),
-                leads.countByCreatedAtGreaterThanEqual(week), leads.countByStatus(LeadStatus.unassigned),
-                leads.countByStatus(LeadStatus.assigned), leads.countByStatus(LeadStatus.completed)));
+                leads.countByCreatedAtGreaterThanEqual(week), unassigned, assigned, completed, unassigned, assigned, completed));
     }
 
     @GetMapping("/operator/by-package")

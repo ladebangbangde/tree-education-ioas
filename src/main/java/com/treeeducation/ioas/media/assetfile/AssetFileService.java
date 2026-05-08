@@ -52,7 +52,10 @@ public class AssetFileService {
 
     @Transactional
     public AssetFile uploadOne(Long packageId, AssetFileType type, MultipartFile file, UserPrincipal p) {
-        packages.findById(packageId).orElseThrow(() -> BusinessException.notFound("主题包不存在"));
+        ContentPackage cp = packages.findById(packageId).orElseThrow(() -> BusinessException.notFound("主题包不存在"));
+        if (Boolean.TRUE.equals(cp.getIsDeleted())) {
+            throw BusinessException.badRequest("主题包已删除，不能上传文件");
+        }
         if (file == null || file.isEmpty()) {
             throw BusinessException.badRequest("文件不能为空");
         }
@@ -93,6 +96,9 @@ public class AssetFileService {
     @Transactional
     public void softDelete(Long id, UserPrincipal p) {
         AssetFile f = get(id);
+        if (Boolean.TRUE.equals(f.getIsDeleted())) {
+            return;
+        }
         f.setIsDeleted(true);
         f.setDeletedAt(Instant.now());
         f.setDeletedBy(p.id());
@@ -104,6 +110,10 @@ public class AssetFileService {
     @Transactional
     public AssetFile restore(Long id, UserPrincipal p) {
         AssetFile f = get(id);
+        ContentPackage cp = packages.findById(f.getPackageId()).orElseThrow(() -> BusinessException.notFound("主题包不存在"));
+        if (Boolean.TRUE.equals(cp.getIsDeleted())) {
+            throw BusinessException.badRequest("主题包已删除，不能恢复文件");
+        }
         f.setIsDeleted(false);
         f.setDeletedAt(null);
         f.setDeletedBy(null);
@@ -117,6 +127,9 @@ public class AssetFileService {
     @Transactional
     public void purge(Long id, UserPrincipal p) {
         AssetFile f = get(id);
+        if (!Boolean.TRUE.equals(f.getIsDeleted())) {
+            throw BusinessException.badRequest("文件未在回收站，不能永久删除");
+        }
         storage.remove(f.getObjectKey());
         repo.delete(f);
         packageService.refreshCountsAndStatus(f.getPackageId());
@@ -138,10 +151,23 @@ public class AssetFileService {
 
     public ResponseEntity<InputStreamResource> download(Long id) {
         AssetFile f = get(id);
+        if (Boolean.TRUE.equals(f.getIsDeleted())) {
+            throw BusinessException.notFound("文件不存在");
+        }
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(f.getMimeType()))
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + f.getFileName() + "\"")
                 .body(new InputStreamResource(storage.get(f.getObjectKey())));
+    }
+
+
+    public AssetFileDtos.PreviewResponse preview(Long id) {
+        AssetFile f = get(id);
+        if (Boolean.TRUE.equals(f.getIsDeleted())) {
+            throw BusinessException.notFound("文件不存在");
+        }
+        return new AssetFileDtos.PreviewResponse(f.getId(), f.getFileName(), f.getFileType(), f.getMimeType(),
+                f.getPreviewUrl(), f.getThumbnailUrl(), f.getFileSize());
     }
 
     @Transactional

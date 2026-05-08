@@ -53,8 +53,8 @@ public class AssetFileController {
 
     @GetMapping("/{id}/preview")
     @Operation(summary = "获取预览地址")
-    public ApiResponse<String> preview(@PathVariable Long id) {
-        return ApiResponse.ok(service.get(id).getPreviewUrl());
+    public ApiResponse<AssetFileDtos.PreviewResponse> preview(@PathVariable Long id) {
+        return ApiResponse.ok(service.preview(id));
     }
 
     @GetMapping("/recycle-bin")

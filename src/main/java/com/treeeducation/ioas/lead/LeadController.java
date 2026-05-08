@@ -49,8 +49,9 @@ public class LeadController {
 
     @PatchMapping("/{id}/status")
     @Operation(summary = "更新线索状态")
-    public ApiResponse<LeadDtos.Response> status(@PathVariable Long id, @Valid @RequestBody LeadDtos.StatusRequest r) {
-        Lead lead = service.updateStatus(id, r.status());
+    public ApiResponse<LeadDtos.Response> status(@PathVariable Long id, @Valid @RequestBody LeadDtos.StatusRequest r,
+                                                  @AuthenticationPrincipal UserPrincipal p) {
+        Lead lead = service.updateStatus(id, r.status(), p);
         return ApiResponse.ok(service.detail(lead.getId()));
     }
 

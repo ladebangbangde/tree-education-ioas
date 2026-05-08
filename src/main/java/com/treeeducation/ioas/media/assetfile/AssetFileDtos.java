@@ -16,6 +16,10 @@ public final class AssetFileDtos {
                            Long createdBy, String createdByName, Instant createdAt, Instant updatedAt,
                            Boolean isDeleted, Instant deletedAt, Long deletedBy, Instant purgeAt) {}
 
+    @Schema(description = "素材预览响应")
+    public record PreviewResponse(Long id, String fileName, AssetFileType fileType, String mimeType, String previewUrl,
+                                  String thumbnailUrl, Long fileSize) {}
+
     @Schema(description = "回收站文件响应")
     public record RecycleBinResponse(Long id, String fileName, AssetFileType fileType, Long packageId,
                                      String packageTopicName, Long operatorId, String operatorName, String fullPath,

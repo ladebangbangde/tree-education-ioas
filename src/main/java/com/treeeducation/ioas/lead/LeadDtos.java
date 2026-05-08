@@ -14,7 +14,7 @@ public final class LeadDtos {
     public record CreateRequest(@NotNull Long relatedPackageId, String sourceType, Long operatorId,
                                 @NotBlank String studentName, String phone, String wechat, String sourceChannel,
                                 String targetCountry, String targetMajor, String budget, String degreeLevel,
-                                String remark) {}
+                                LeadStatus status, Long assignedTo, String assignedToName, String remark) {}
 
     @Schema(description = "更新线索状态请求")
     public record StatusRequest(@NotNull LeadStatus status) {}
@@ -23,16 +23,16 @@ public final class LeadDtos {
     public record UpdateRequest(String remark, Long assignedTo, String assignedToName, LeadStatus status) {}
 
     @Schema(description = "线索响应")
-    public record Response(Long id, String leadNo, String studentName, String phone, String wechat,
+    public record Response(Long id, String sourceType, Long relatedPackageId, Long operatorId, String leadNo, String studentName, String phone, String wechat,
                            String sourceChannel, String targetCountry, String targetMajor, String budget,
                            String degreeLevel, LeadStatus status, Long assignedTo, String assignedToName,
-                           Long relatedPackageId, String relatedPackageName, Instant createdAt,
+                           String relatedPackageName, Instant createdAt,
                            Instant updatedAt, String remark) {}
 
     public static Response of(Lead l, String packageName) {
-        return new Response(l.getId(), l.getLeadNo(), l.getStudentName(), l.getPhone(), l.getWechat(),
-                l.getSourceChannel(), l.getTargetCountry(), l.getTargetMajor(), l.getBudget(), l.getDegreeLevel(),
-                l.getStatus(), l.getAssignedTo(), l.getAssignedToName(), l.getRelatedPackageId(), packageName,
-                l.getCreatedAt(), l.getUpdatedAt(), l.getRemark());
+        return new Response(l.getId(), l.getSourceType(), l.getRelatedPackageId(), l.getOperatorId(), l.getLeadNo(),
+                l.getStudentName(), l.getPhone(), l.getWechat(), l.getSourceChannel(), l.getTargetCountry(),
+                l.getTargetMajor(), l.getBudget(), l.getDegreeLevel(), l.getStatus(), l.getAssignedTo(),
+                l.getAssignedToName(), packageName, l.getCreatedAt(), l.getUpdatedAt(), l.getRemark());
     }
 }

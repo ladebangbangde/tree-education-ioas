@@ -57,8 +57,9 @@ public class ContentPackageController {
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','MEDIA')")
     @Operation(summary = "编辑主题包运营人员与主题名称")
-    public ApiResponse<ContentPackageDtos.Response> update(@PathVariable Long id, @Valid @RequestBody ContentPackageDtos.UpsertRequest r) {
-        return ApiResponse.ok(ContentPackageDtos.of(service.update(id, r)));
+    public ApiResponse<ContentPackageDtos.Response> update(@PathVariable Long id, @Valid @RequestBody ContentPackageDtos.UpsertRequest r,
+                                                            @AuthenticationPrincipal UserPrincipal p) {
+        return ApiResponse.ok(ContentPackageDtos.of(service.update(id, r, p)));
     }
 
     @DeleteMapping("/{id}")
