@@ -1,0 +1,15 @@
+package com.treeeducation.ioas.media.assetfile;
+
+import jakarta.persistence.*;
+import java.time.Instant;
+
+/** Asset metadata stored in MySQL while object bytes live in MinIO/OSS. */
+@Entity @Table(name="asset_file")
+public class AssetFile {
+ @Id @GeneratedValue(strategy=GenerationType.IDENTITY) private Long id; @Column(nullable=false) private Long packageId;
+ @Enumerated(EnumType.STRING) @Column(nullable=false,length=20) private AssetFileType type; @Column(nullable=false,length=255) private String originalName;
+ @Column(nullable=false,length=500) private String objectKey; @Column(nullable=false,length=100) private String bucketName; @Column(length=1000) private String previewUrl; @Column(length=1000) private String thumbnailUrl; @Column(nullable=false,length=120) private String mimeType; @Column(nullable=false) private Long fileSize;
+ @Column(length=1000) private String description; @Column(nullable=false) private Long uploadedBy; @Column(nullable=false) private Instant uploadedAt=Instant.now();
+ @Column(nullable=false) private Boolean isDeleted=false; private Instant deletedAt; private Long deletedBy; private Instant purgeAt;
+ public Long getId(){return id;} public void setId(Long id){this.id=id;} public Long getPackageId(){return packageId;} public void setPackageId(Long packageId){this.packageId=packageId;} public AssetFileType getType(){return type;} public void setType(AssetFileType type){this.type=type;} public String getOriginalName(){return originalName;} public void setOriginalName(String originalName){this.originalName=originalName;} public String getObjectKey(){return objectKey;} public void setObjectKey(String objectKey){this.objectKey=objectKey;} public String getBucketName(){return bucketName;} public void setBucketName(String bucketName){this.bucketName=bucketName;} public String getPreviewUrl(){return previewUrl;} public void setPreviewUrl(String previewUrl){this.previewUrl=previewUrl;} public String getThumbnailUrl(){return thumbnailUrl;} public void setThumbnailUrl(String thumbnailUrl){this.thumbnailUrl=thumbnailUrl;} public String getMimeType(){return mimeType;} public void setMimeType(String mimeType){this.mimeType=mimeType;} public Long getFileSize(){return fileSize;} public void setFileSize(Long fileSize){this.fileSize=fileSize;} public String getDescription(){return description;} public void setDescription(String description){this.description=description;} public Long getUploadedBy(){return uploadedBy;} public void setUploadedBy(Long uploadedBy){this.uploadedBy=uploadedBy;} public Instant getUploadedAt(){return uploadedAt;} public void setUploadedAt(Instant uploadedAt){this.uploadedAt=uploadedAt;} public Boolean getIsDeleted(){return isDeleted;} public void setIsDeleted(Boolean isDeleted){this.isDeleted=isDeleted;} public Instant getDeletedAt(){return deletedAt;} public void setDeletedAt(Instant deletedAt){this.deletedAt=deletedAt;} public Long getDeletedBy(){return deletedBy;} public void setDeletedBy(Long deletedBy){this.deletedBy=deletedBy;} public Instant getPurgeAt(){return purgeAt;} public void setPurgeAt(Instant purgeAt){this.purgeAt=purgeAt;}
+}

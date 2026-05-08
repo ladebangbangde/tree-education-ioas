@@ -1,0 +1,1 @@
+package com.treeeducation.ioas.task; import org.springframework.data.domain.*;import org.springframework.data.jpa.repository.JpaRepository; public interface TaskRepository extends JpaRepository<Task,Long>{ Page<Task> findByType(TaskType type,Pageable pageable); long countByTypeAndStatus(TaskType type,TaskStatus status); }
