@@ -34,6 +34,13 @@ ioas:
     secret-key: ${IOAS_MINIO_SECRET_KEY:minioadmin}
     bucket: ${IOAS_STORAGE_BUCKET:ioas-assets}
     public-base-url: ${IOAS_STORAGE_PUBLIC_BASE_URL:http://localhost:9000/ioas-assets}
+  wecom:
+    enabled: ${IOAS_WECOM_ENABLED:false}
+    corp-id: ${IOAS_WECOM_CORP_ID:}
+    agent-id: ${IOAS_WECOM_AGENT_ID:}
+    secret: ${IOAS_WECOM_SECRET:}
+    callback-token: ${IOAS_WECOM_CALLBACK_TOKEN:}
+    api-base-url: https://qyapi.weixin.qq.com
 
 springdoc:
   swagger-ui:
