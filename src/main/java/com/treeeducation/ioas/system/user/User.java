@@ -11,22 +11,22 @@ public class User {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    @Column(nullable = false, unique = true, length = 64)
+    @Column(name = "username", nullable = false, unique = true, length = 64)
     private String username;
-    @Column(nullable = false)
+    @Column(name = "password_hash", nullable = false)
     private String passwordHash;
-    @Column(nullable = false, length = 80)
+    @Column(name = "display_name", nullable = false, length = 80)
     private String displayName;
-    @Column(length = 80)
+    @Transient
     private String userName;
-    @Column(length = 80)
+    @Column(name = "department", length = 80)
     private String department;
-    @Column(nullable = false, length = 40)
+    @Column(name = "role_code", nullable = false, length = 40)
     private String roleCode;
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @Column(name = "status", nullable = false, length = 20)
     private UserStatus status = UserStatus.ACTIVE;
-    @Column(nullable = false, updatable = false)
+    @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
     public Long getId() { return id; }
