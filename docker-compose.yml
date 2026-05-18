@@ -17,9 +17,9 @@ services:
       IOAS_MINIO_SECRET_KEY: ${IOAS_MINIO_SECRET_KEY:-minioadmin123}
       IOAS_STORAGE_BUCKET: ${IOAS_STORAGE_BUCKET:-ioas-assets}
 
-      # Allow larger media/document uploads through Spring Boot multipart handling.
-      SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:-500MB}
-      SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:-500MB}
+      # Allow GB-level media/document uploads through Spring Boot multipart handling.
+      SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:-5GB}
+      SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:-5GB}
 
       # Public URL returned by IOAS to frontend for file preview/download.
       # Current test deployment uses server IP + exposed MinIO API port.
