@@ -2,9 +2,9 @@ spring:
   application:
     name: tree-education-ioas
   datasource:
-    url: ${IOAS_DATASOURCE_URL:jdbc:mysql://localhost:3306/tree_education_ioas?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true}
-    username: ${IOAS_DATASOURCE_USERNAME:ioas}
-    password: ${IOAS_DATASOURCE_PASSWORD:ioas_password}
+    url: ${IOAS_DATASOURCE_URL:jdbc:mysql://121.41.95.26:33306/tree_education_ioas?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${IOAS_DATASOURCE_USERNAME:root}
+    password: ${IOAS_DATASOURCE_PASSWORD:ldbbd@2025}
   jpa:
     hibernate:
       ddl-auto: validate
@@ -17,10 +17,10 @@ spring:
     locations: classpath:db/migration
   data:
     redis:
-      host: ${IOAS_REDIS_HOST:localhost}
-      port: ${IOAS_REDIS_PORT:6379}
+      host: ${IOAS_REDIS_HOST:121.41.65.26}
+      port: ${IOAS_REDIS_PORT:16379}
 server:
-  port: ${IOAS_SERVER_PORT:8080}
+  port: ${IOAS_SERVER_PORT:1201}
 
 ioas:
   jwt:

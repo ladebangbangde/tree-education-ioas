@@ -16,7 +16,10 @@ services:
       IOAS_MINIO_ACCESS_KEY: ${IOAS_MINIO_ACCESS_KEY:-minioadmin}
       IOAS_MINIO_SECRET_KEY: ${IOAS_MINIO_SECRET_KEY:-minioadmin123}
       IOAS_STORAGE_BUCKET: ${IOAS_STORAGE_BUCKET:-ioas-assets}
-      IOAS_STORAGE_PUBLIC_BASE_URL: ${IOAS_STORAGE_PUBLIC_BASE_URL:-http://localhost:9000/ioas-assets}
+
+      # 改动1：后端返回给前端的文件公网访问地址
+      # 以前默认 localhost:9000，公网访问会不对
+      IOAS_STORAGE_PUBLIC_BASE_URL: ${IOAS_STORAGE_PUBLIC_BASE_URL:-http://minio.ldbbd.com/ioas-assets}
     ports:
       - "${IOAS_HOST_PORT:-18080}:${IOAS_SERVER_PORT:-8080}"
     depends_on:
@@ -32,9 +35,20 @@ services:
     environment:
       MINIO_ROOT_USER: ${IOAS_MINIO_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${IOAS_MINIO_SECRET_KEY:-minioadmin123}
+
+      # 改动2：告诉 MinIO 自己的公网 API 地址
+      # 解决通过 frp / 域名访问时 Console 一直 Loading 的问题
+      MINIO_SERVER_URL: ${MINIO_SERVER_URL:-http://minio.ldbbd.com}
+
+      # 改动3：告诉 MinIO Console 自己的公网访问地址
+      # 解决浏览器 JS 找不到正确后端地址的问题
+      MINIO_BROWSER_REDIRECT_URL: ${MINIO_BROWSER_REDIRECT_URL:-http://minio.ldbbd.com}
     ports:
-      - "${IOAS_MINIO_API_HOST_PORT:-9000}:9000"
-      - "${IOAS_MINIO_CONSOLE_HOST_PORT:-9001}:9001"
+      # 改动4：宿主机 API 端口改成 19000，避免和已有 9000 冲突
+      - "${IOAS_MINIO_API_HOST_PORT:-19000}:9000"
+
+      # 改动5：宿主机 Console 端口改成 19001，避免和已有 9001 冲突
+      - "${IOAS_MINIO_CONSOLE_HOST_PORT:-19001}:9001"
     volumes:
       - minio-data:/data
     networks:
