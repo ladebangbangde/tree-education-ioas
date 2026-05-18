@@ -25,6 +25,8 @@ public class AssetFile {
     @Column(nullable = false) private Integer sortOrder = 0;
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 40) private UploadStatus uploadStatus = UploadStatus.success;
+    @Column(length = 1000) private String description;
+    @Column(nullable = false) private Long uploadedBy;
     @Column(nullable = false) private Long createdBy;
     @Column(length = 80) private String createdByName;
     @Column(nullable = false, updatable = false) private Instant createdAt = Instant.now();
@@ -64,6 +66,10 @@ public class AssetFile {
     public void setSortOrder(Integer sortOrder) { this.sortOrder = sortOrder; }
     public UploadStatus getUploadStatus() { return uploadStatus; }
     public void setUploadStatus(UploadStatus uploadStatus) { this.uploadStatus = uploadStatus; }
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+    public Long getUploadedBy() { return uploadedBy; }
+    public void setUploadedBy(Long uploadedBy) { this.uploadedBy = uploadedBy; }
     public Long getCreatedBy() { return createdBy; }
     public void setCreatedBy(Long createdBy) { this.createdBy = createdBy; }
     public String getCreatedByName() { return createdByName; }
