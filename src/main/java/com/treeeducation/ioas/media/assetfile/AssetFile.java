@@ -4,7 +4,6 @@ import jakarta.persistence.*;
 
 import java.time.Instant;
 
-/** Asset metadata stored in MySQL while object bytes live in MinIO/OSS. */
 @Entity
 @Table(name = "asset_file")
 public class AssetFile {
@@ -13,14 +12,8 @@ public class AssetFile {
     @Column(length = 40) private String fileNo;
     @Column(nullable = false) private Long packageId;
     @Column(nullable = false, length = 255) private String fileName;
-
-    /**
-     * Legacy database column required by current asset_file table.
-     * Keep this mapped so inserts include a non-null value for column `type`.
-     */
-    @Column(nullable = false, length = 50)
-    private String type;
-
+    @Column(nullable = false, length = 255) private String originalName;
+    @Column(nullable = false, length = 50) private String type;
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20) private AssetFileType fileType;
     @Column(nullable = false, length = 120) private String mimeType;
@@ -49,6 +42,8 @@ public class AssetFile {
     public void setPackageId(Long packageId) { this.packageId = packageId; }
     public String getFileName() { return fileName; }
     public void setFileName(String fileName) { this.fileName = fileName; }
+    public String getOriginalName() { return originalName; }
+    public void setOriginalName(String originalName) { this.originalName = originalName; }
     public String getType() { return type; }
     public void setType(String type) { this.type = type; }
     public AssetFileType getFileType() { return fileType; }
