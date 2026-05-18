@@ -2,6 +2,9 @@ package com.treeeducation.ioas.media.assetfile;
 
 import com.treeeducation.ioas.common.ApiResponse;
 import com.treeeducation.ioas.media.assetfile.dto.AssetFileUploadResponse;
+import com.treeeducation.ioas.media.contentpackage.ContentPackage;
+import com.treeeducation.ioas.media.contentpackage.ContentPackageRepository;
+import com.treeeducation.ioas.media.contentpackage.ContentPackageStatus;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.swagger.v3.oas.annotations.Operation;
@@ -22,6 +25,7 @@ public class AssetFileUploadController {
 
     private final MinioClient minioClient;
     private final AssetFileRepository assetFileRepository;
+    private final ContentPackageRepository contentPackageRepository;
 
     @Value("${ioas.storage.bucket}")
     private String bucketName;
@@ -30,9 +34,11 @@ public class AssetFileUploadController {
     private String publicBaseUrl;
 
     public AssetFileUploadController(MinioClient minioClient,
-                                     AssetFileRepository assetFileRepository) {
+                                     AssetFileRepository assetFileRepository,
+                                     ContentPackageRepository contentPackageRepository) {
         this.minioClient = minioClient;
         this.assetFileRepository = assetFileRepository;
+        this.contentPackageRepository = contentPackageRepository;
     }
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -42,6 +48,8 @@ public class AssetFileUploadController {
             @RequestParam(defaultValue = "0") Long packageId,
             @RequestParam(defaultValue = "image") AssetFileType fileType
     ) throws Exception {
+
+        Long actualPackageId = resolvePackageId(packageId);
 
         String originalFilename = file.getOriginalFilename();
         String suffix = "";
@@ -66,13 +74,10 @@ public class AssetFileUploadController {
 
         AssetFile assetFile = new AssetFile();
         assetFile.setFileNo("FILE" + System.currentTimeMillis());
-        assetFile.setPackageId(packageId);
+        assetFile.setPackageId(actualPackageId);
         assetFile.setFileName(originalFilename);
         assetFile.setOriginalName(originalFilename);
-
-// legacy DB column
         assetFile.setType(fileType.name());
-
         assetFile.setFileType(fileType);
         assetFile.setMimeType(file.getContentType());
         assetFile.setFileSize(file.getSize());
@@ -99,5 +104,24 @@ public class AssetFileUploadController {
                 saved.getObjectKey(),
                 publicUrl
         ));
+    }
+
+    private Long resolvePackageId(Long packageId) {
+        if (packageId != null && packageId > 0 && contentPackageRepository.existsById(packageId)) {
+            return packageId;
+        }
+
+        ContentPackage contentPackage = new ContentPackage();
+        contentPackage.setPackageNo("PKG" + System.currentTimeMillis());
+        contentPackage.setTopicName("默认上传资源包");
+        contentPackage.setOperatorId(0L);
+        contentPackage.setOperatorName("system");
+        contentPackage.setFullPath("/default-upload");
+        contentPackage.setUploadStatus(ContentPackageStatus.completed);
+        contentPackage.setCreatedBy(0L);
+        contentPackage.setCreatedByName("system");
+
+        ContentPackage saved = contentPackageRepository.save(contentPackage);
+        return saved.getId();
     }
 }
