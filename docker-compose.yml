@@ -49,7 +49,7 @@ services:
       - "${IOAS_MINIO_API_HOST_PORT:-9000}:9000"
       - "${IOAS_MINIO_CONSOLE_HOST_PORT:-9001}:9001"
     volumes:
-      - ${IOAS_MINIO_HOST_DATA_DIR:-./docker-data/minio}:/data
+      - minio-data:/data
     networks:
       - ioas-network
 
@@ -59,3 +59,4 @@ networks:
 
 volumes:
   redis-data:
+  minio-data:
