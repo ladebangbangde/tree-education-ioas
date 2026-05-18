@@ -10,8 +10,8 @@ services:
       - .env
     environment:
       IOAS_SERVER_PORT: ${IOAS_SERVER_PORT:-8080}
-      IOAS_REDIS_HOST: redis
-      IOAS_REDIS_PORT: 6379
+      IOAS_REDIS_HOST: ${IOAS_REDIS_HOST:-121.41.65.26}
+      IOAS_REDIS_PORT: ${IOAS_REDIS_PORT:-16379}
       IOAS_MINIO_ENDPOINT: http://minio:9000
       IOAS_MINIO_ACCESS_KEY: ${IOAS_MINIO_ACCESS_KEY:-minioadmin}
       IOAS_MINIO_SECRET_KEY: ${IOAS_MINIO_SECRET_KEY:-minioadmin123}
@@ -20,20 +20,7 @@ services:
     ports:
       - "${IOAS_HOST_PORT:-18080}:${IOAS_SERVER_PORT:-8080}"
     depends_on:
-      - redis
       - minio
-    networks:
-      - ioas-network
-
-  redis:
-    image: redis:7.4-alpine
-    container_name: ioas-redis
-    restart: unless-stopped
-    command: redis-server --appendonly yes
-    ports:
-      - "${IOAS_REDIS_HOST_PORT:-6379}:6379"
-    volumes:
-      - redis-data:/data
     networks:
       - ioas-network
 
@@ -58,5 +45,4 @@ networks:
     driver: bridge
 
 volumes:
-  redis-data:
   minio-data:
