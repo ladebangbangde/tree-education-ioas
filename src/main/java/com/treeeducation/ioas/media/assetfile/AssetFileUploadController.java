@@ -68,6 +68,10 @@ public class AssetFileUploadController {
         assetFile.setFileNo("FILE" + System.currentTimeMillis());
         assetFile.setPackageId(packageId);
         assetFile.setFileName(originalFilename);
+
+        // legacy DB column
+        assetFile.setType(fileType.name());
+
         assetFile.setFileType(fileType);
         assetFile.setMimeType(file.getContentType());
         assetFile.setFileSize(file.getSize());
