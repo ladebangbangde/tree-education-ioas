@@ -68,8 +68,9 @@ public class AssetFileUploadController {
         assetFile.setFileNo("FILE" + System.currentTimeMillis());
         assetFile.setPackageId(packageId);
         assetFile.setFileName(originalFilename);
+        assetFile.setOriginalName(originalFilename);
 
-        // legacy DB column
+// legacy DB column
         assetFile.setType(fileType.name());
 
         assetFile.setFileType(fileType);
@@ -80,6 +81,7 @@ public class AssetFileUploadController {
         assetFile.setPreviewUrl(publicUrl);
         assetFile.setThumbnailUrl(publicUrl);
         assetFile.setUploadStatus(UploadStatus.success);
+        assetFile.setUploadedBy(0L);
         assetFile.setCreatedBy(0L);
         assetFile.setCreatedByName("system");
 
