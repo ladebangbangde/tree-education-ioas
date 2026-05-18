@@ -1,0 +1,61 @@
+services:
+  ioas-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tree-education-ioas:latest
+    container_name: tree-education-ioas
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      IOAS_SERVER_PORT: ${IOAS_SERVER_PORT:-8080}
+      IOAS_REDIS_HOST: redis
+      IOAS_REDIS_PORT: 6379
+      IOAS_MINIO_ENDPOINT: http://minio:9000
+      IOAS_MINIO_ACCESS_KEY: ${IOAS_MINIO_ACCESS_KEY:-minioadmin}
+      IOAS_MINIO_SECRET_KEY: ${IOAS_MINIO_SECRET_KEY:-minioadmin123}
+      IOAS_STORAGE_BUCKET: ${IOAS_STORAGE_BUCKET:-ioas-assets}
+      IOAS_STORAGE_PUBLIC_BASE_URL: ${IOAS_STORAGE_PUBLIC_BASE_URL:-http://localhost:9000/ioas-assets}
+    ports:
+      - "${IOAS_HOST_PORT:-18080}:${IOAS_SERVER_PORT:-8080}"
+    depends_on:
+      - redis
+      - minio
+    networks:
+      - ioas-network
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: ioas-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "${IOAS_REDIS_HOST_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - ioas-network
+
+  minio:
+    image: minio/minio:latest
+    container_name: ioas-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${IOAS_MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${IOAS_MINIO_SECRET_KEY:-minioadmin123}
+    ports:
+      - "${IOAS_MINIO_API_HOST_PORT:-9000}:9000"
+      - "${IOAS_MINIO_CONSOLE_HOST_PORT:-9001}:9001"
+    volumes:
+      - ${IOAS_MINIO_HOST_DATA_DIR:-./docker-data/minio}:/data
+    networks:
+      - ioas-network
+
+networks:
+  ioas-network:
+    driver: bridge
+
+volumes:
+  redis-data:
