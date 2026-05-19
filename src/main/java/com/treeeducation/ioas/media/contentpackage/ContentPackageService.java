@@ -15,7 +15,6 @@ import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.List;
 
-/** Application service for media topic packages. */
 @Service
 public class ContentPackageService {
     private final ContentPackageRepository repo;
@@ -35,17 +34,21 @@ public class ContentPackageService {
 
     @Transactional
     public ContentPackage create(ContentPackageDtos.UpsertRequest r, UserPrincipal p) {
+        String topicName = normalizeTopicName(r.topicName());
+        if (existsActiveTopicName(topicName, null)) {
+            throw BusinessException.badRequest("主题包名称已存在，请更换名称");
+        }
         var operator = operators.findById(r.operatorId()).orElseThrow(() -> BusinessException.notFound("运营人员不存在"));
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         ContentPackage cp = new ContentPackage();
         cp.setPackageNo("PKG" + System.currentTimeMillis());
-        cp.setTopicName(r.topicName());
+        cp.setTopicName(topicName);
         cp.setOperatorId(operator.getId());
         cp.setOperatorName(operator.getName());
         cp.setFolderYear(today.getYear());
         cp.setFolderMonth(today.getMonthValue());
         cp.setFolderDay(today.getDayOfMonth());
-        cp.setFullPath(buildPath(today, operator.getName(), r.topicName()));
+        cp.setFullPath(buildPath(today, operator.getName(), topicName));
         cp.setUploadStatus(ContentPackageStatus.pending_upload);
         cp.setCreatedBy(p.id());
         cp.setCreatedByName(p.userName());
@@ -88,11 +91,15 @@ public class ContentPackageService {
     @Transactional
     public ContentPackage update(Long id, ContentPackageDtos.UpsertRequest r, UserPrincipal p) {
         ContentPackage cp = get(id);
+        String topicName = normalizeTopicName(r.topicName());
+        if (existsActiveTopicName(topicName, id)) {
+            throw BusinessException.badRequest("主题包名称已存在，请更换名称");
+        }
         var operator = operators.findById(r.operatorId()).orElseThrow(() -> BusinessException.notFound("运营人员不存在"));
         cp.setOperatorId(operator.getId());
         cp.setOperatorName(operator.getName());
-        cp.setTopicName(r.topicName());
-        cp.setFullPath(buildPath(LocalDate.of(cp.getFolderYear(), cp.getFolderMonth(), cp.getFolderDay()), operator.getName(), r.topicName()));
+        cp.setTopicName(topicName);
+        cp.setFullPath(buildPath(LocalDate.of(cp.getFolderYear(), cp.getFolderMonth(), cp.getFolderDay()), operator.getName(), topicName));
         cp.setUpdatedAt(Instant.now());
         audit(AuditAction.update_package, "content_package", id, p.id(), cp.getTopicName());
         return cp;
@@ -126,6 +133,17 @@ public class ContentPackageService {
         cp.setUploadStatus(hasAll ? ContentPackageStatus.completed : hasAny ? ContentPackageStatus.partial_completed : ContentPackageStatus.pending_upload);
         cp.setUpdatedAt(Instant.now());
         tasks.refreshMediaUploadTask(cp);
+    }
+
+    private boolean existsActiveTopicName(String topicName, Long excludeId) {
+        return repo.findAll().stream()
+                .filter(p -> !Boolean.TRUE.equals(p.getIsDeleted()))
+                .filter(p -> excludeId == null || !excludeId.equals(p.getId()))
+                .anyMatch(p -> normalizeTopicName(p.getTopicName()).equals(topicName));
+    }
+
+    private String normalizeTopicName(String topicName) {
+        return topicName == null ? "" : topicName.trim();
     }
 
     private String buildPath(LocalDate date, String operatorName, String topicName) {
