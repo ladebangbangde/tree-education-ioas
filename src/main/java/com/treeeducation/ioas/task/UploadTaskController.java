@@ -47,6 +47,7 @@ public class UploadTaskController {
 
         Task task = new Task();
         task.setType("UPLOAD");
+        task.setTitle("上传任务 - " + (request == null ? "unknown" : request.fileName()));
         task.setTaskType(TaskType.media_upload);
         task.setRoleType(TaskRoleType.media);
         task.setRelatedPackageId(packageId);
