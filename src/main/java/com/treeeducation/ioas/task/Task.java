@@ -11,6 +11,7 @@ public class Task {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     @Column(nullable = false, length = 50) private String type;
+    @Column(nullable = false, length = 160) private String title;
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 40) private TaskType taskType;
     @Enumerated(EnumType.STRING)
@@ -30,6 +31,8 @@ public class Task {
     public void setId(Long id) { this.id = id; }
     public String getType() { return type; }
     public void setType(String type) { this.type = type; }
+    public String getTitle() { return title; }
+    public void setTitle(String title) { this.title = title; }
     public TaskType getTaskType() { return taskType; }
     public void setTaskType(TaskType taskType) { this.taskType = taskType; }
     public TaskRoleType getRoleType() { return roleType; }
