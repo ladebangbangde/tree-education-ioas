@@ -18,6 +18,8 @@ public class TaskService {
     @Transactional
     public void ensureMediaUploadTask(ContentPackage p) {
         Task task = tasks.findFirstByTaskTypeAndRelatedPackageId(TaskType.media_upload, p.getId()).orElseGet(Task::new);
+        task.setType(TaskType.media_upload.name());
+        task.setTitle("媒体素材上传 - " + p.getTopicName());
         task.setTaskType(TaskType.media_upload);
         task.setRoleType(TaskRoleType.media);
         task.setRelatedPackageId(p.getId());
@@ -32,6 +34,8 @@ public class TaskService {
     @Transactional
     public void refreshMediaUploadTask(ContentPackage p) {
         Task task = tasks.findFirstByTaskTypeAndRelatedPackageId(TaskType.media_upload, p.getId()).orElseGet(Task::new);
+        task.setType(TaskType.media_upload.name());
+        task.setTitle("媒体素材上传 - " + p.getTopicName());
         task.setTaskType(TaskType.media_upload);
         task.setRoleType(TaskRoleType.media);
         task.setRelatedPackageId(p.getId());
@@ -49,6 +53,8 @@ public class TaskService {
     @Transactional
     public void createOperatorLeadTask(Long packageId, Long leadId, Long assigneeId, String assigneeName) {
         Task task = new Task();
+        task.setType(TaskType.operator_lead_generate.name());
+        task.setTitle("运营线索生成 - " + packageId);
         task.setTaskType(TaskType.operator_lead_generate);
         task.setRoleType(TaskRoleType.operator);
         task.setRelatedPackageId(packageId);
@@ -57,6 +63,7 @@ public class TaskService {
         task.setAssigneeName(assigneeName);
         task.setStatus(OperatorTaskStatus.pending.name());
         task.setProgress(0);
+        task.setUpdatedAt(Instant.now());
         tasks.save(task);
     }
 }
