@@ -20,7 +20,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-/** Application service enforcing package-bound file uploads and recycle-bin semantics. */
 @Service
 public class AssetFileService {
     private final AssetFileRepository repo;
@@ -59,12 +58,15 @@ public class AssetFileService {
         if (file == null || file.isEmpty()) {
             throw BusinessException.badRequest("文件不能为空");
         }
+        String originalName = file.getOriginalFilename() == null || file.getOriginalFilename().isBlank() ? "file" : file.getOriginalFilename();
         StoredObject so = storage.put(packageId, file);
         AssetFile af = new AssetFile();
         af.setFileNo("FILE" + System.currentTimeMillis());
         af.setPackageId(packageId);
         af.setFileType(type);
-        af.setFileName(file.getOriginalFilename() == null ? "file" : file.getOriginalFilename());
+        af.setType(type.name());
+        af.setFileName(originalName);
+        af.setOriginalName(originalName);
         af.setMimeType(file.getContentType() == null ? "application/octet-stream" : file.getContentType());
         af.setFileSize(file.getSize());
         af.setBucketName(so.bucketName());
@@ -73,6 +75,7 @@ public class AssetFileService {
         af.setThumbnailUrl(so.thumbnailUrl());
         af.setSortOrder(repo.findByPackageId(packageId).size() + 1);
         af.setUploadStatus(UploadStatus.success);
+        af.setUploadedBy(p.id());
         af.setCreatedBy(p.id());
         af.setCreatedByName(p.userName());
         af = repo.save(af);
@@ -159,7 +162,6 @@ public class AssetFileService {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + f.getFileName() + "\"")
                 .body(new InputStreamResource(storage.get(f.getObjectKey())));
     }
-
 
     public AssetFileDtos.PreviewResponse preview(Long id) {
         AssetFile f = get(id);
