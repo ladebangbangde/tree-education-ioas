@@ -46,6 +46,7 @@ public class UploadTaskController {
         Long packageId = resolvePackageId(request == null ? null : request.packageId());
 
         Task task = new Task();
+        task.setType("UPLOAD");
         task.setTaskType(TaskType.media_upload);
         task.setRoleType(TaskRoleType.media);
         task.setRelatedPackageId(packageId);
