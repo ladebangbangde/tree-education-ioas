@@ -31,6 +31,7 @@ public class UploadTaskFileController {
     private final TaskRepository taskRepository;
     private final ContentPackageRepository contentPackageRepository;
     private final AssetFileRepository assetFileRepository;
+    private final TaskLogService taskLogService;
     private final MinioClient minioClient;
 
     @Value("${ioas.storage.bucket}")
@@ -42,10 +43,12 @@ public class UploadTaskFileController {
     public UploadTaskFileController(TaskRepository taskRepository,
                                     ContentPackageRepository contentPackageRepository,
                                     AssetFileRepository assetFileRepository,
+                                    TaskLogService taskLogService,
                                     MinioClient minioClient) {
         this.taskRepository = taskRepository;
         this.contentPackageRepository = contentPackageRepository;
         this.assetFileRepository = assetFileRepository;
+        this.taskLogService = taskLogService;
         this.minioClient = minioClient;
     }
 
@@ -60,7 +63,8 @@ public class UploadTaskFileController {
                 .orElseThrow(() -> new IllegalArgumentException("upload task not found: " + taskId));
 
         try {
-            updateTask(task, "uploading", 20, null, false);
+            taskLogService.info(taskId, "received multipart upload request, fileType=" + fileType);
+            updateTask(task, "uploading", Math.max(task.getProgress(), 20), null, false);
 
             Long packageId = resolvePackageId(task.getRelatedPackageId());
             String originalFilename = file.getOriginalFilename() == null ? "upload-file" : file.getOriginalFilename();
@@ -68,9 +72,11 @@ public class UploadTaskFileController {
             if (originalFilename.contains(".")) {
                 suffix = originalFilename.substring(originalFilename.lastIndexOf('.'));
             }
+            taskLogService.info(taskId, "uploading file name=" + originalFilename + ", size=" + file.getSize() + ", contentType=" + file.getContentType());
 
             String datePath = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd"));
             String objectKey = datePath + "/" + UUID.randomUUID() + suffix;
+            taskLogService.info(taskId, "start put object bucket=" + bucketName + ", objectKey=" + objectKey);
 
             minioClient.putObject(
                     PutObjectArgs.builder()
@@ -81,7 +87,8 @@ public class UploadTaskFileController {
                             .build()
             );
 
-            updateTask(task, "processing", 80, null, false);
+            updateTask(task, "processing", 95, null, false);
+            taskLogService.info(taskId, "minio put object finished, start asset_file persist");
 
             String publicUrl = publicBaseUrl + "/" + objectKey;
             AssetFile assetFile = new AssetFile();
@@ -98,16 +105,18 @@ public class UploadTaskFileController {
             assetFile.setPreviewUrl(publicUrl);
             assetFile.setThumbnailUrl(publicUrl);
             assetFile.setUploadStatus(UploadStatus.success);
-            assetFile.setUploadedBy(0L);
-            assetFile.setCreatedBy(0L);
-            assetFile.setCreatedByName("system");
+            assetFile.setUploadedBy(task.getAssigneeId() == null ? 0L : task.getAssigneeId());
+            assetFile.setCreatedBy(task.getAssigneeId() == null ? 0L : task.getAssigneeId());
+            assetFile.setCreatedByName(task.getAssigneeName() == null ? "system" : task.getAssigneeName());
             assetFileRepository.save(assetFile);
 
             task.setRelatedPackageId(packageId);
             Task saved = updateTask(task, "success", 100, null, true);
+            taskLogService.info(taskId, "task success, assetFileId=" + assetFile.getId());
             return ApiResponse.ok(toResponse(saved));
         } catch (Exception ex) {
-            updateTask(task, "failed", 0, ex.getMessage(), false);
+            taskLogService.error(taskId, "upload task failed", ex);
+            updateTask(task, "failed", 100, ex.getMessage(), true);
             throw ex;
         }
     }
