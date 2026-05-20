@@ -23,6 +23,9 @@ public class Task {
     @Column(nullable = false, length = 40) private String status;
     @Column(nullable = false) private Integer progress = 0;
     @Column(length = 1000) private String errorMessage;
+    @Column(length = 100) private String uploadBucketName;
+    @Column(length = 500) private String uploadObjectKey;
+    @Column(length = 1000) private String uploadPublicUrl;
     @Column(nullable = false, updatable = false) private Instant createdAt = Instant.now();
     private Instant completedAt;
     private Instant updatedAt = Instant.now();
@@ -51,6 +54,12 @@ public class Task {
     public void setProgress(Integer progress) { this.progress = progress; }
     public String getErrorMessage() { return errorMessage; }
     public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
+    public String getUploadBucketName() { return uploadBucketName; }
+    public void setUploadBucketName(String uploadBucketName) { this.uploadBucketName = uploadBucketName; }
+    public String getUploadObjectKey() { return uploadObjectKey; }
+    public void setUploadObjectKey(String uploadObjectKey) { this.uploadObjectKey = uploadObjectKey; }
+    public String getUploadPublicUrl() { return uploadPublicUrl; }
+    public void setUploadPublicUrl(String uploadPublicUrl) { this.uploadPublicUrl = uploadPublicUrl; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getCompletedAt() { return completedAt; }
