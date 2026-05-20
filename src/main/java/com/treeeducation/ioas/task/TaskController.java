@@ -18,7 +18,6 @@ import org.springframework.web.bind.annotation.*;
 import java.time.Instant;
 import java.util.List;
 
-/** Task APIs for media and operators. */
 @RestController
 @RequestMapping("/api/v1/tasks")
 @Tag(name = "Task", description = "媒体任务、运营任务与联动更新")
@@ -27,15 +26,18 @@ public class TaskController {
     private final ContentPackageRepository packages;
     private final AssetFileRepository files;
     private final AuditLogRepository audits;
+    private final TaskLogService taskLogService;
 
     public TaskController(TaskRepository repo,
                           ContentPackageRepository packages,
                           AssetFileRepository files,
-                          AuditLogRepository audits) {
+                          AuditLogRepository audits,
+                          TaskLogService taskLogService) {
         this.repo = repo;
         this.packages = packages;
         this.files = files;
         this.audits = audits;
+        this.taskLogService = taskLogService;
     }
 
     @GetMapping("/media")
@@ -64,14 +66,41 @@ public class TaskController {
         return ApiResponse.ok(PageResponse.of(rows, pageNum, pageSize));
     }
 
+    @GetMapping("/{id}/logs")
+    @Operation(summary = "查看任务日志")
+    public ApiResponse<List<String>> logs(@PathVariable Long id,
+                                          @RequestParam(defaultValue = "200") int lines,
+                                          @AuthenticationPrincipal UserPrincipal p) {
+        Task t = repo.findById(id).orElseThrow(() -> BusinessException.notFound("任务不存在"));
+        assertOwner(t, p);
+        return ApiResponse.ok(taskLogService.tail(id, Math.min(Math.max(lines, 1), 1000)));
+    }
+
+    @PostMapping("/{id}/cancel")
+    @Operation(summary = "取消任务")
+    public ApiResponse<TaskDtos.Response> cancel(@PathVariable Long id,
+                                                 @AuthenticationPrincipal UserPrincipal p) {
+        Task t = repo.findById(id).orElseThrow(() -> BusinessException.notFound("任务不存在"));
+        assertOwner(t, p);
+        if ("success".equalsIgnoreCase(t.getStatus()) || "failed".equalsIgnoreCase(t.getStatus()) || "cancelled".equalsIgnoreCase(t.getStatus())) {
+            return ApiResponse.ok(toResponse(t));
+        }
+        t.setStatus("cancelled");
+        t.setProgress(100);
+        t.setCompletedAt(Instant.now());
+        t.setUpdatedAt(Instant.now());
+        t.setErrorMessage("用户取消任务");
+        repo.save(t);
+        taskLogService.warn(id, "task cancelled by userId=" + p.id());
+        return ApiResponse.ok(toResponse(t));
+    }
+
     @PatchMapping("/{id}")
     @Operation(summary = "任务联动更新")
     public ApiResponse<TaskDtos.Response> update(@PathVariable Long id, @RequestBody TaskDtos.UpdateRequest r,
                                                  @AuthenticationPrincipal UserPrincipal p) {
         Task t = repo.findById(id).orElseThrow(() -> BusinessException.notFound("任务不存在"));
-        if (!isSuperAdmin(p) && t.getAssigneeId() != null && !p.id().equals(t.getAssigneeId())) {
-            throw BusinessException.forbidden("只能操作自己的任务");
-        }
+        assertOwner(t, p);
         if (r.status() != null) t.setStatus(r.status());
         if (r.progress() != null) t.setProgress(r.progress());
         if (r.errorMessage() != null) t.setErrorMessage(r.errorMessage());
@@ -89,6 +118,7 @@ public class TaskController {
         log.setActorId(p.id());
         log.setDetail(t.getStatus());
         audits.save(log);
+        taskLogService.info(id, "task updated status=" + t.getStatus() + ", progress=" + t.getProgress());
         return ApiResponse.ok(toResponse(t));
     }
 
@@ -100,6 +130,11 @@ public class TaskController {
                 ? List.<AssetFile>of()
                 : files.findByPackageIdAndIsDeletedFalse(task.getRelatedPackageId());
         return TaskDtos.of(task, contentPackage, assetFiles);
+    }
+
+    private void assertOwner(Task t, UserPrincipal p) {
+        if (isSuperAdmin(p) || t.getAssigneeId() == null || p.id().equals(t.getAssigneeId())) return;
+        throw BusinessException.forbidden("只能操作自己的任务");
     }
 
     private boolean isSuperAdmin(UserPrincipal p) {
