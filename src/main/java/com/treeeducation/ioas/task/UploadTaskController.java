@@ -1,5 +1,6 @@
 package com.treeeducation.ioas.task;
 
+import com.treeeducation.ioas.auth.UserPrincipal;
 import com.treeeducation.ioas.common.ApiResponse;
 import com.treeeducation.ioas.media.assetfile.AssetFile;
 import com.treeeducation.ioas.media.assetfile.AssetFileRepository;
@@ -13,6 +14,7 @@ import com.treeeducation.ioas.task.dto.UploadTaskResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
@@ -42,7 +44,8 @@ public class UploadTaskController {
 
     @PostMapping
     @Operation(summary = "创建上传任务")
-    public ApiResponse<UploadTaskResponse> create(@RequestBody UploadTaskCreateRequest request) {
+    public ApiResponse<UploadTaskResponse> create(@RequestBody UploadTaskCreateRequest request,
+                                                   @AuthenticationPrincipal UserPrincipal p) {
         Long packageId = resolvePackageId(request == null ? null : request.packageId());
 
         Task task = new Task();
@@ -51,8 +54,8 @@ public class UploadTaskController {
         task.setTaskType(TaskType.media_upload);
         task.setRoleType(TaskRoleType.media);
         task.setRelatedPackageId(packageId);
-        task.setAssigneeId(0L);
-        task.setAssigneeName("system");
+        task.setAssigneeId(p == null ? 0L : p.id());
+        task.setAssigneeName(p == null ? "system" : p.userName());
         task.setStatus("created");
         task.setProgress(0);
         task.setUpdatedAt(Instant.now());
@@ -72,7 +75,8 @@ public class UploadTaskController {
     @PostMapping("/{taskId}/complete")
     @Operation(summary = "完成上传任务并落库")
     public ApiResponse<UploadTaskResponse> complete(@PathVariable Long taskId,
-                                                    @RequestBody UploadTaskCompleteRequest request) {
+                                                    @RequestBody UploadTaskCompleteRequest request,
+                                                    @AuthenticationPrincipal UserPrincipal p) {
         Task task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new IllegalArgumentException("upload task not found: " + taskId));
 
@@ -102,9 +106,9 @@ public class UploadTaskController {
             assetFile.setPreviewUrl(publicUrl);
             assetFile.setThumbnailUrl(publicUrl);
             assetFile.setUploadStatus(UploadStatus.success);
-            assetFile.setUploadedBy(0L);
-            assetFile.setCreatedBy(0L);
-            assetFile.setCreatedByName("system");
+            assetFile.setUploadedBy(p == null ? 0L : p.id());
+            assetFile.setCreatedBy(p == null ? 0L : p.id());
+            assetFile.setCreatedByName(p == null ? "system" : p.userName());
             assetFileRepository.save(assetFile);
 
             task.setRelatedPackageId(packageId);
