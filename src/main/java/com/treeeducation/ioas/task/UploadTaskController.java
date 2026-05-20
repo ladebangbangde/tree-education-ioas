@@ -20,11 +20,13 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/upload-tasks")
 @Tag(name = "上传任务")
 public class UploadTaskController {
+    private static final List<String> RUNNING_STATUSES = List.of("created", "queued", "uploading", "processing");
 
     private final TaskRepository taskRepository;
     private final ContentPackageRepository contentPackageRepository;
@@ -35,6 +37,12 @@ public class UploadTaskController {
 
     @Value("${ioas.storage.public-base-url}")
     private String publicBaseUrl;
+
+    @Value("${ioas.task.max-user-running:3}")
+    private long maxUserRunning;
+
+    @Value("${ioas.task.max-global-running:20}")
+    private long maxGlobalRunning;
 
     public UploadTaskController(TaskRepository taskRepository,
                                 ContentPackageRepository contentPackageRepository,
@@ -48,6 +56,8 @@ public class UploadTaskController {
     @Operation(summary = "创建上传任务")
     public ApiResponse<UploadTaskResponse> create(@RequestBody UploadTaskCreateRequest request,
                                                    @AuthenticationPrincipal UserPrincipal p) {
+        Long userId = p == null ? 0L : p.id();
+        enforceConcurrencyLimit(userId, p);
         Long packageId = resolvePackageId(request == null ? null : request.packageId());
         ContentPackage pkg = contentPackageRepository.findById(packageId).orElse(null);
         String fileName = request == null ? "unknown" : valueOrDefault(request.fileName(), "unknown");
@@ -59,7 +69,7 @@ public class UploadTaskController {
         task.setTaskType(TaskType.media_upload);
         task.setRoleType(TaskRoleType.media);
         task.setRelatedPackageId(packageId);
-        task.setAssigneeId(p == null ? 0L : p.id());
+        task.setAssigneeId(userId);
         task.setAssigneeName(p == null ? "system" : p.userName());
         task.setStatus("created");
         task.setProgress(0);
@@ -165,6 +175,20 @@ public class UploadTaskController {
         task.setUpdatedAt(Instant.now());
         Task saved = taskRepository.save(task);
         return ApiResponse.ok(toResponse(saved));
+    }
+
+    private void enforceConcurrencyLimit(Long userId, UserPrincipal p) {
+        if (p != null && "SUPER_ADMIN".equalsIgnoreCase(p.role())) {
+            return;
+        }
+        long globalRunning = taskRepository.countByRoleTypeAndStatusIn(TaskRoleType.media, RUNNING_STATUSES);
+        if (globalRunning >= maxGlobalRunning) {
+            throw BusinessException.badRequest("系统上传任务繁忙，请等待已有任务完成后再上传");
+        }
+        long userRunning = taskRepository.countByRoleTypeAndAssigneeIdAndStatusIn(TaskRoleType.media, userId, RUNNING_STATUSES);
+        if (userRunning >= maxUserRunning) {
+            throw BusinessException.badRequest("当前账号进行中的上传任务过多，请等待已有任务完成后再上传");
+        }
     }
 
     private void assertOwner(Task task, UserPrincipal p) {
