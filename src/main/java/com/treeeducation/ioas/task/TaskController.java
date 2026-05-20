@@ -5,16 +5,24 @@ import com.treeeducation.ioas.auth.UserPrincipal;
 import com.treeeducation.ioas.common.ApiResponse;
 import com.treeeducation.ioas.common.BusinessException;
 import com.treeeducation.ioas.common.PageResponse;
+import com.treeeducation.ioas.media.assetfile.AssetFile;
+import com.treeeducation.ioas.media.assetfile.AssetFileRepository;
 import com.treeeducation.ioas.media.contentpackage.ContentPackage;
 import com.treeeducation.ioas.media.contentpackage.ContentPackageRepository;
+import com.treeeducation.ioas.task.dto.TaskBatchDeleteRequest;
+import io.minio.MinioClient;
+import io.minio.RemoveObjectArgs;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/tasks")
@@ -22,17 +30,23 @@ import java.util.List;
 public class TaskController {
     private final TaskRepository repo;
     private final ContentPackageRepository packages;
+    private final AssetFileRepository assetFiles;
     private final AuditLogRepository audits;
     private final TaskLogService taskLogService;
+    private final MinioClient minioClient;
 
     public TaskController(TaskRepository repo,
                           ContentPackageRepository packages,
+                          AssetFileRepository assetFiles,
                           AuditLogRepository audits,
-                          TaskLogService taskLogService) {
+                          TaskLogService taskLogService,
+                          @Qualifier("minioClient") MinioClient minioClient) {
         this.repo = repo;
         this.packages = packages;
+        this.assetFiles = assetFiles;
         this.audits = audits;
         this.taskLogService = taskLogService;
+        this.minioClient = minioClient;
     }
 
     @GetMapping("/media")
@@ -90,6 +104,50 @@ public class TaskController {
         return ApiResponse.ok(toResponse(t));
     }
 
+    @DeleteMapping("/batch")
+    @Operation(summary = "批量删除任务并可永久删除对象文件")
+    public ApiResponse<Map<String, Object>> batchDelete(@RequestBody TaskBatchDeleteRequest request,
+                                                        @AuthenticationPrincipal UserPrincipal p) {
+        List<Long> ids = request == null || request.taskIds() == null ? List.of() : request.taskIds().stream().distinct().toList();
+        boolean purgeFiles = request == null || request.purgeFiles() == null || request.purgeFiles();
+        if (ids.isEmpty()) {
+            throw BusinessException.badRequest("请选择要删除的任务");
+        }
+
+        int deletedTasks = 0;
+        int deletedObjects = 0;
+        int deletedAssetRows = 0;
+        Map<Long, String> skipped = new LinkedHashMap<>();
+
+        for (Long id : ids) {
+            Task task = repo.findById(id).orElse(null);
+            if (task == null) {
+                skipped.put(id, "任务不存在");
+                continue;
+            }
+            try {
+                assertOwner(task, p);
+                if (purgeFiles) {
+                    PurgeResult result = purgeUploadObject(task);
+                    deletedObjects += result.objects();
+                    deletedAssetRows += result.assetRows();
+                }
+                taskLogService.delete(id);
+                repo.delete(task);
+                deletedTasks++;
+            } catch (RuntimeException ex) {
+                skipped.put(id, ex.getMessage());
+            }
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("deletedTasks", deletedTasks);
+        result.put("deletedObjects", deletedObjects);
+        result.put("deletedAssetRows", deletedAssetRows);
+        result.put("skipped", skipped);
+        return ApiResponse.ok(result);
+    }
+
     @PatchMapping("/{id}")
     @Operation(summary = "任务联动更新")
     public ApiResponse<TaskDtos.Response> update(@PathVariable Long id, @RequestBody TaskDtos.UpdateRequest r,
@@ -117,6 +175,31 @@ public class TaskController {
         return ApiResponse.ok(toResponse(t));
     }
 
+    private PurgeResult purgeUploadObject(Task task) {
+        String bucket = task.getUploadBucketName();
+        String objectKey = task.getUploadObjectKey();
+        if (bucket == null || bucket.isBlank() || objectKey == null || objectKey.isBlank()) {
+            return new PurgeResult(0, 0);
+        }
+
+        int deletedObjects = 0;
+        int deletedAssetRows = 0;
+        try {
+            minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(objectKey).build());
+            deletedObjects = 1;
+            taskLogService.warn(task.getId(), "permanently deleted object " + bucket + "/" + objectKey);
+        } catch (Exception ex) {
+            taskLogService.warn(task.getId(), "delete object ignored, bucket=" + bucket + ", objectKey=" + objectKey + ", message=" + ex.getMessage());
+        }
+
+        List<AssetFile> rows = assetFiles.findByBucketNameAndObjectKey(bucket, objectKey);
+        if (!rows.isEmpty()) {
+            assetFiles.deleteAll(rows);
+            deletedAssetRows = rows.size();
+        }
+        return new PurgeResult(deletedObjects, deletedAssetRows);
+    }
+
     private TaskDtos.Response toResponse(Task task) {
         ContentPackage contentPackage = task.getRelatedPackageId() == null
                 ? null
@@ -132,4 +215,6 @@ public class TaskController {
     private boolean isSuperAdmin(UserPrincipal p) {
         return p != null && "SUPER_ADMIN".equalsIgnoreCase(p.role());
     }
+
+    private record PurgeResult(int objects, int assetRows) {}
 }
