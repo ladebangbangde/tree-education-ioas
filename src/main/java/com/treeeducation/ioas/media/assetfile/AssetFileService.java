@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -157,9 +158,13 @@ public class AssetFileService {
         if (Boolean.TRUE.equals(f.getIsDeleted())) {
             throw BusinessException.notFound("文件不存在");
         }
+        ContentDisposition disposition = ContentDisposition.attachment()
+                .filename(f.getFileName(), StandardCharsets.UTF_8)
+                .build();
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(f.getMimeType()))
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + f.getFileName() + "\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .header(HttpHeaders.CACHE_CONTROL, "private, max-age=3600")
                 .body(new InputStreamResource(storage.get(f.getObjectKey())));
     }
 
