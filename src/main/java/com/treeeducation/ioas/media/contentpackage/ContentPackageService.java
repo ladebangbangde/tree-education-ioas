@@ -14,6 +14,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 public class ContentPackageService {
@@ -35,6 +36,9 @@ public class ContentPackageService {
     @Transactional
     public ContentPackage create(ContentPackageDtos.UpsertRequest r, UserPrincipal p) {
         String topicName = normalizeTopicName(r.topicName());
+        if (topicName.isBlank()) {
+            throw BusinessException.badRequest("主题包名称不能为空");
+        }
         if (existsActiveTopicName(topicName, null)) {
             throw BusinessException.badRequest("主题包名称已存在，请更换名称");
         }
@@ -92,6 +96,9 @@ public class ContentPackageService {
     public ContentPackage update(Long id, ContentPackageDtos.UpsertRequest r, UserPrincipal p) {
         ContentPackage cp = get(id);
         String topicName = normalizeTopicName(r.topicName());
+        if (topicName.isBlank()) {
+            throw BusinessException.badRequest("主题包名称不能为空");
+        }
         if (existsActiveTopicName(topicName, id)) {
             throw BusinessException.badRequest("主题包名称已存在，请更换名称");
         }
@@ -136,14 +143,19 @@ public class ContentPackageService {
     }
 
     private boolean existsActiveTopicName(String topicName, Long excludeId) {
+        String normalized = normalizeTopicKey(topicName);
         return repo.findAll().stream()
                 .filter(p -> !Boolean.TRUE.equals(p.getIsDeleted()))
                 .filter(p -> excludeId == null || !excludeId.equals(p.getId()))
-                .anyMatch(p -> normalizeTopicName(p.getTopicName()).equals(topicName));
+                .anyMatch(p -> normalizeTopicKey(p.getTopicName()).equals(normalized));
     }
 
     private String normalizeTopicName(String topicName) {
-        return topicName == null ? "" : topicName.trim();
+        return topicName == null ? "" : topicName.trim().replaceAll("\\s+", " ");
+    }
+
+    private String normalizeTopicKey(String topicName) {
+        return normalizeTopicName(topicName).toLowerCase(Locale.ROOT);
     }
 
     private String buildPath(LocalDate date, String operatorName, String topicName) {
