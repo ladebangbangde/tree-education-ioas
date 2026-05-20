@@ -5,6 +5,7 @@ import com.treeeducation.ioas.auth.UserPrincipal;
 import com.treeeducation.ioas.common.ApiResponse;
 import com.treeeducation.ioas.common.BusinessException;
 import com.treeeducation.ioas.common.PageResponse;
+import com.treeeducation.ioas.media.assetfile.AssetFile;
 import com.treeeducation.ioas.media.assetfile.AssetFileRepository;
 import com.treeeducation.ioas.media.contentpackage.ContentPackage;
 import com.treeeducation.ioas.media.contentpackage.ContentPackageRepository;
@@ -95,8 +96,8 @@ public class TaskController {
         ContentPackage contentPackage = task.getRelatedPackageId() == null
                 ? null
                 : packages.findById(task.getRelatedPackageId()).orElse(null);
-        var assetFiles = task.getRelatedPackageId() == null
-                ? List.of()
+        List<AssetFile> assetFiles = task.getRelatedPackageId() == null
+                ? List.<AssetFile>of()
                 : files.findByPackageIdAndIsDeletedFalse(task.getRelatedPackageId());
         return TaskDtos.of(task, contentPackage, assetFiles);
     }
