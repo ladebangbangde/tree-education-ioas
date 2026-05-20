@@ -42,6 +42,14 @@ public class TaskLogService {
         }
     }
 
+    public void delete(Long taskId) {
+        try {
+            Files.deleteIfExists(filePath(taskId));
+        } catch (IOException ignored) {
+            // Log cleanup must never break scheduler flow.
+        }
+    }
+
     private synchronized void append(Long taskId, String level, String message, Throwable error) {
         try {
             Path file = filePath(taskId);
