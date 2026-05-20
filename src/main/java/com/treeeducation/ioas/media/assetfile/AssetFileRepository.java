@@ -11,5 +11,6 @@ public interface AssetFileRepository extends JpaRepository<AssetFile, Long> {
     List<AssetFile> findByPackageId(Long packageId);
     List<AssetFile> findByIsDeletedTrue();
     List<AssetFile> findByIsDeletedTrueAndPurgeAtLessThanEqual(Instant now);
+    List<AssetFile> findByBucketNameAndObjectKey(String bucketName, String objectKey);
     long countByFileTypeAndIsDeletedFalse(AssetFileType fileType);
 }
