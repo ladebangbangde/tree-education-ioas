@@ -5,8 +5,6 @@ import com.treeeducation.ioas.auth.UserPrincipal;
 import com.treeeducation.ioas.common.ApiResponse;
 import com.treeeducation.ioas.common.BusinessException;
 import com.treeeducation.ioas.common.PageResponse;
-import com.treeeducation.ioas.media.assetfile.AssetFile;
-import com.treeeducation.ioas.media.assetfile.AssetFileRepository;
 import com.treeeducation.ioas.media.contentpackage.ContentPackage;
 import com.treeeducation.ioas.media.contentpackage.ContentPackageRepository;
 import io.swagger.v3.oas.annotations.Operation;
@@ -24,18 +22,15 @@ import java.util.List;
 public class TaskController {
     private final TaskRepository repo;
     private final ContentPackageRepository packages;
-    private final AssetFileRepository files;
     private final AuditLogRepository audits;
     private final TaskLogService taskLogService;
 
     public TaskController(TaskRepository repo,
                           ContentPackageRepository packages,
-                          AssetFileRepository files,
                           AuditLogRepository audits,
                           TaskLogService taskLogService) {
         this.repo = repo;
         this.packages = packages;
-        this.files = files;
         this.audits = audits;
         this.taskLogService = taskLogService;
     }
@@ -126,10 +121,7 @@ public class TaskController {
         ContentPackage contentPackage = task.getRelatedPackageId() == null
                 ? null
                 : packages.findById(task.getRelatedPackageId()).orElse(null);
-        List<AssetFile> assetFiles = task.getRelatedPackageId() == null
-                ? List.<AssetFile>of()
-                : files.findByPackageIdAndIsDeletedFalse(task.getRelatedPackageId());
-        return TaskDtos.of(task, contentPackage, assetFiles);
+        return TaskDtos.of(task, contentPackage);
     }
 
     private void assertOwner(Task t, UserPrincipal p) {
