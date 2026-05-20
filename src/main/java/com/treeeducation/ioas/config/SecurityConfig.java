@@ -34,8 +34,6 @@ public class SecurityConfig {
         return web -> web.ignoring().requestMatchers(
                 "/",
                 "/health",
-                "/api/files/**",
-                "/api/upload-tasks/**",
                 "/swagger-ui.html",
                 "/swagger-ui/**",
                 "/v3/api-docs",
@@ -54,13 +52,13 @@ public class SecurityConfig {
                                 "/",
                                 "/health",
                                 "/api/v1/auth/login",
-                                "/api/files/**",
-                                "/api/upload-tasks/**",
                                 "/swagger-ui.html",
                                 "/swagger-ui/**",
                                 "/v3/api-docs",
                                 "/v3/api-docs/**"
                         ).permitAll()
+                        .requestMatchers("/api/files/**").permitAll()
+                        .requestMatchers("/api/upload-tasks/**").authenticated()
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
@@ -74,6 +72,7 @@ public class SecurityConfig {
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"));
         configuration.setExposedHeaders(List.of("Content-Disposition"));
         configuration.setAllowCredentials(false);
+        configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
