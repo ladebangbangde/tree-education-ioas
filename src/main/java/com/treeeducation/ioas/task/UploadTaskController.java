@@ -5,6 +5,7 @@ import com.treeeducation.ioas.common.ApiResponse;
 import com.treeeducation.ioas.common.BusinessException;
 import com.treeeducation.ioas.media.assetfile.AssetFile;
 import com.treeeducation.ioas.media.assetfile.AssetFileRepository;
+import com.treeeducation.ioas.media.assetfile.AssetFileType;
 import com.treeeducation.ioas.media.assetfile.UploadStatus;
 import com.treeeducation.ioas.media.contentpackage.ContentPackage;
 import com.treeeducation.ioas.media.contentpackage.ContentPackageRepository;
@@ -186,18 +187,19 @@ public class UploadTaskController {
                     .object(request.objectKey())
                     .build());
 
-            Long actualSize = stat.size() == null ? request.fileSize() : stat.size();
+            Long actualSize = stat.size();
             String actualMime = valueOrDefault(request.mimeType(), stat.contentType());
             String publicUrl = valueOrDefault(request.publicUrl(), publicBaseUrl + "/" + request.objectKey());
             String fileName = valueOrDefault(request.fileName(), request.objectKey());
+            AssetFileType actualFileType = request.fileType() == null ? AssetFileType.script : request.fileType();
 
             AssetFile assetFile = new AssetFile();
             assetFile.setFileNo("FILE" + System.currentTimeMillis());
             assetFile.setPackageId(packageId);
             assetFile.setFileName(fileName);
             assetFile.setOriginalName(fileName);
-            assetFile.setType(request.fileType().name());
-            assetFile.setFileType(request.fileType());
+            assetFile.setType(actualFileType.name());
+            assetFile.setFileType(actualFileType);
             assetFile.setMimeType(actualMime);
             assetFile.setFileSize(actualSize);
             assetFile.setBucketName(bucketName);
