@@ -1,11 +1,9 @@
 package com.treeeducation.ioas.task;
 
-import com.treeeducation.ioas.media.assetfile.AssetFile;
 import com.treeeducation.ioas.media.contentpackage.ContentPackage;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.Instant;
-import java.util.List;
 
 /** Task DTOs. */
 public final class TaskDtos {
@@ -41,26 +39,23 @@ public final class TaskDtos {
                            Instant updatedAt) {}
 
     public static Response of(Task t) {
-        return of(t, null, List.of());
+        return of(t, null);
     }
 
-    public static Response of(Task t, ContentPackage p, List<AssetFile> files) {
-        int scriptCount = p == null ? 0 : value(p.getScriptCount());
-        int videoCount = p == null ? 0 : value(p.getVideoCount());
-        int imageCount = p == null ? 0 : value(p.getImageCount());
-        int fileTotal = isUploadTask(t) ? 1 : scriptCount + videoCount + imageCount;
-        int successCount = isSuccess(t) ? fileTotal : 0;
-        int failedCount = isFailed(t) ? fileTotal : 0;
-        int progress = isFailed(t) ? 100 : value(t.getProgress());
+    public static Response of(Task t, ContentPackage p) {
+        int progress = isTerminalFailed(t) ? 100 : value(t.getProgress());
+        int fileTotal = isUploadTask(t) ? 1 : 0;
+        int successCount = isSuccess(t) ? 1 : 0;
+        int failedCount = isTerminalFailed(t) ? 1 : 0;
 
         return new Response(t.getId(), t.getTitle(), t.getTaskType(), t.getRoleType(), t.getRelatedPackageId(),
                 p == null ? null : p.getTopicName(),
                 p == null ? null : p.getOperatorId(),
                 p == null ? null : p.getOperatorName(),
                 p == null ? null : p.getFullPath(),
-                scriptCount,
-                videoCount,
-                imageCount,
+                null,
+                null,
+                null,
                 fileTotal,
                 successCount,
                 failedCount,
@@ -83,8 +78,8 @@ public final class TaskDtos {
         return t != null && "success".equalsIgnoreCase(t.getStatus());
     }
 
-    private static boolean isFailed(Task t) {
-        return t != null && "failed".equalsIgnoreCase(t.getStatus());
+    private static boolean isTerminalFailed(Task t) {
+        return t != null && ("failed".equalsIgnoreCase(t.getStatus()) || "cancelled".equalsIgnoreCase(t.getStatus()));
     }
 
     private static int value(Integer v) {
