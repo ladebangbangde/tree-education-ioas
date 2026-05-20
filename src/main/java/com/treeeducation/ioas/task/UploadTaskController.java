@@ -130,6 +130,9 @@ public class UploadTaskController {
 
         task.setStatus("uploading");
         task.setProgress(Math.max(1, value(task.getProgress())));
+        task.setUploadBucketName(defaultBucketName);
+        task.setUploadObjectKey(objectKey);
+        task.setUploadPublicUrl(publicUrl);
         task.setUpdatedAt(Instant.now());
         taskRepository.save(task);
         taskLogService.info(taskId, "presigned direct upload url generated, objectKey=" + objectKey + ", fileName=" + originalFileName + ", size=" + (request == null ? null : request.fileSize()));
@@ -213,6 +216,9 @@ public class UploadTaskController {
             assetFileRepository.save(assetFile);
 
             task.setRelatedPackageId(packageId);
+            task.setUploadBucketName(bucketName);
+            task.setUploadObjectKey(request.objectKey());
+            task.setUploadPublicUrl(publicUrl);
             task.setStatus("success");
             task.setProgress(100);
             task.setCompletedAt(Instant.now());
