@@ -1,7 +1,6 @@
 package com.treeeducation.ioas.task;
 
 import com.treeeducation.ioas.media.assetfile.AssetFile;
-import com.treeeducation.ioas.media.assetfile.UploadStatus;
 import com.treeeducation.ioas.media.contentpackage.ContentPackage;
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -49,9 +48,10 @@ public final class TaskDtos {
         int scriptCount = p == null ? 0 : value(p.getScriptCount());
         int videoCount = p == null ? 0 : value(p.getVideoCount());
         int imageCount = p == null ? 0 : value(p.getImageCount());
-        int fileTotal = files == null || files.isEmpty() ? scriptCount + videoCount + imageCount : files.size();
-        int successCount = files == null ? 0 : (int) files.stream().filter(f -> UploadStatus.success.equals(f.getUploadStatus())).count();
-        int failedCount = files == null ? 0 : (int) files.stream().filter(f -> !UploadStatus.success.equals(f.getUploadStatus())).count();
+        int fileTotal = isUploadTask(t) ? 1 : scriptCount + videoCount + imageCount;
+        int successCount = isSuccess(t) ? fileTotal : 0;
+        int failedCount = isFailed(t) ? fileTotal : 0;
+        int progress = isFailed(t) ? 100 : value(t.getProgress());
 
         return new Response(t.getId(), t.getTitle(), t.getTaskType(), t.getRoleType(), t.getRelatedPackageId(),
                 p == null ? null : p.getTopicName(),
@@ -68,11 +68,23 @@ public final class TaskDtos {
                 t.getAssigneeId(),
                 t.getAssigneeName(),
                 t.getStatus(),
-                t.getProgress(),
+                progress,
                 t.getErrorMessage(),
                 t.getCreatedAt(),
                 t.getCompletedAt(),
                 t.getUpdatedAt());
+    }
+
+    private static boolean isUploadTask(Task t) {
+        return t != null && t.getTaskType() == TaskType.media_upload;
+    }
+
+    private static boolean isSuccess(Task t) {
+        return t != null && "success".equalsIgnoreCase(t.getStatus());
+    }
+
+    private static boolean isFailed(Task t) {
+        return t != null && "failed".equalsIgnoreCase(t.getStatus());
     }
 
     private static int value(Integer v) {
