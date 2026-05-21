@@ -246,12 +246,12 @@ public class UploadTaskController {
                     .build());
 
             UploadTaskCompleteRequest completeRequest = new UploadTaskCompleteRequest(
-                    bucketName,
-                    objectKey,
-                    valueOrDefault(request.publicUrl(), publicBaseUrl + "/" + objectKey),
                     request.fileName(),
-                    request.fileSize(),
+                    objectKey,
+                    bucketName,
+                    valueOrDefault(request.publicUrl(), publicBaseUrl + "/" + objectKey),
                     request.mimeType(),
+                    request.fileSize(),
                     request.fileType()
             );
             return complete(taskId, completeRequest, p);
