@@ -156,11 +156,16 @@ public class UploadTaskController {
         Task task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new IllegalArgumentException("upload task not found: " + taskId));
         assertOwner(task, p);
-        int progress = request == null || request.progress() == null ? value(task.getProgress()) : Math.max(0, Math.min(99, request.progress()));
-        task.setStatus(valueOrDefault(request == null ? null : request.status(), "uploading"));
+        int oldProgress = value(task.getProgress());
+        int progress = request == null || request.progress() == null ? oldProgress : Math.max(0, Math.min(99, request.progress()));
+        String status = valueOrDefault(request == null ? null : request.status(), "uploading");
+        task.setStatus(status);
         task.setProgress(progress);
         task.setUpdatedAt(Instant.now());
         Task saved = taskRepository.save(task);
+        if (progress != oldProgress && shouldLogProgress(oldProgress, progress)) {
+            taskLogService.info(taskId, "upload progress heartbeat, status=" + status + ", progress=" + progress + "%");
+        }
         return ApiResponse.ok(toResponse(saved));
     }
 
@@ -249,6 +254,7 @@ public class UploadTaskController {
         task.setStatus("failed");
         task.setProgress(100);
         task.setErrorMessage(message);
+        task.setCompletedAt(Instant.now());
         task.setUpdatedAt(Instant.now());
         Task saved = taskRepository.save(task);
         taskLogService.warn(taskId, "task marked failed, message=" + message);
@@ -322,6 +328,10 @@ public class UploadTaskController {
 
     private int value(Integer v) {
         return v == null ? 0 : v;
+    }
+
+    private boolean shouldLogProgress(int oldProgress, int progress) {
+        return progress == 1 || progress == 95 || progress % 5 == 0 || progress - oldProgress >= 5;
     }
 
     private String suffixOf(String fileName) {
