@@ -50,8 +50,9 @@ public class ContentPackageController {
 
     @GetMapping("/{id}")
     @Operation(summary = "主题包详情，包含按类型分组的素材")
-    public ApiResponse<ContentPackageDtos.DetailResponse> get(@PathVariable Long id) {
-        return ApiResponse.ok(service.detail(id));
+    public ApiResponse<ContentPackageDtos.DetailResponse> get(@PathVariable Long id,
+                                                              @AuthenticationPrincipal UserPrincipal p) {
+        return ApiResponse.ok(service.detail(id, p));
     }
 
     @PutMapping("/{id}")
