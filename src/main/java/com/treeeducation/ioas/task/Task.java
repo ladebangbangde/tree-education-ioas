@@ -25,7 +25,16 @@ public class Task {
     @Column(length = 1000) private String errorMessage;
     @Column(length = 100) private String uploadBucketName;
     @Column(length = 500) private String uploadObjectKey;
+    @Column(length = 300) private String uploadId;
     @Column(length = 1000) private String uploadPublicUrl;
+    @Column(length = 300) private String fileName;
+    private Long fileSize;
+    private Long uploadedBytes;
+    private Long speedBytesPerSecond;
+    private Long averageSpeedBytesPerSecond;
+    private Integer partCount;
+    private Integer completedPartCount;
+    private Instant lastProgressAt;
     @Column(nullable = false, updatable = false) private Instant createdAt = Instant.now();
     private Instant completedAt;
     private Instant updatedAt = Instant.now();
@@ -58,8 +67,26 @@ public class Task {
     public void setUploadBucketName(String uploadBucketName) { this.uploadBucketName = uploadBucketName; }
     public String getUploadObjectKey() { return uploadObjectKey; }
     public void setUploadObjectKey(String uploadObjectKey) { this.uploadObjectKey = uploadObjectKey; }
+    public String getUploadId() { return uploadId; }
+    public void setUploadId(String uploadId) { this.uploadId = uploadId; }
     public String getUploadPublicUrl() { return uploadPublicUrl; }
     public void setUploadPublicUrl(String uploadPublicUrl) { this.uploadPublicUrl = uploadPublicUrl; }
+    public String getFileName() { return fileName; }
+    public void setFileName(String fileName) { this.fileName = fileName; }
+    public Long getFileSize() { return fileSize; }
+    public void setFileSize(Long fileSize) { this.fileSize = fileSize; }
+    public Long getUploadedBytes() { return uploadedBytes; }
+    public void setUploadedBytes(Long uploadedBytes) { this.uploadedBytes = uploadedBytes; }
+    public Long getSpeedBytesPerSecond() { return speedBytesPerSecond; }
+    public void setSpeedBytesPerSecond(Long speedBytesPerSecond) { this.speedBytesPerSecond = speedBytesPerSecond; }
+    public Long getAverageSpeedBytesPerSecond() { return averageSpeedBytesPerSecond; }
+    public void setAverageSpeedBytesPerSecond(Long averageSpeedBytesPerSecond) { this.averageSpeedBytesPerSecond = averageSpeedBytesPerSecond; }
+    public Integer getPartCount() { return partCount; }
+    public void setPartCount(Integer partCount) { this.partCount = partCount; }
+    public Integer getCompletedPartCount() { return completedPartCount; }
+    public void setCompletedPartCount(Integer completedPartCount) { this.completedPartCount = completedPartCount; }
+    public Instant getLastProgressAt() { return lastProgressAt; }
+    public void setLastProgressAt(Instant lastProgressAt) { this.lastProgressAt = lastProgressAt; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getCompletedAt() { return completedAt; }
