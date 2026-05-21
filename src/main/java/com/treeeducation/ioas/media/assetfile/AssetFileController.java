@@ -27,14 +27,16 @@ public class AssetFileController {
     public ApiResponse<PageResponse<AssetFileDtos.Response>> list(@RequestParam(required = false) Long packageId,
                                                                   @RequestParam(defaultValue = "all") String fileType,
                                                                   @RequestParam(defaultValue = "1") int pageNum,
-                                                                  @RequestParam(defaultValue = "20") int pageSize) {
-        return ApiResponse.ok(PageResponse.of(service.list(packageId, fileType), pageNum, pageSize));
+                                                                  @RequestParam(defaultValue = "20") int pageSize,
+                                                                  @AuthenticationPrincipal UserPrincipal p) {
+        return ApiResponse.ok(PageResponse.of(service.list(packageId, fileType, p), pageNum, pageSize));
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "素材文件详情")
-    public ApiResponse<AssetFileDtos.Response> get(@PathVariable Long id) {
-        return ApiResponse.ok(AssetFileDtos.of(service.get(id)));
+    public ApiResponse<AssetFileDtos.Response> get(@PathVariable Long id,
+                                                   @AuthenticationPrincipal UserPrincipal p) {
+        return ApiResponse.ok(AssetFileDtos.of(service.getVisible(id, p)));
     }
 
     @DeleteMapping("/{id}")
@@ -47,14 +49,16 @@ public class AssetFileController {
 
     @GetMapping("/{id}/download")
     @Operation(summary = "下载素材文件")
-    public ResponseEntity<InputStreamResource> download(@PathVariable Long id) {
-        return service.download(id);
+    public ResponseEntity<InputStreamResource> download(@PathVariable Long id,
+                                                        @AuthenticationPrincipal UserPrincipal p) {
+        return service.download(id, p);
     }
 
     @GetMapping("/{id}/preview")
     @Operation(summary = "获取预览地址")
-    public ApiResponse<AssetFileDtos.PreviewResponse> preview(@PathVariable Long id) {
-        return ApiResponse.ok(service.preview(id));
+    public ApiResponse<AssetFileDtos.PreviewResponse> preview(@PathVariable Long id,
+                                                              @AuthenticationPrincipal UserPrincipal p) {
+        return ApiResponse.ok(service.preview(id, p));
     }
 
     @GetMapping("/recycle-bin")
@@ -65,8 +69,9 @@ public class AssetFileController {
                                                                                 @RequestParam(required = false) Long packageId,
                                                                                 @RequestParam(required = false) Long operatorId,
                                                                                 @RequestParam(defaultValue = "1") int pageNum,
-                                                                                @RequestParam(defaultValue = "20") int pageSize) {
-        return ApiResponse.ok(PageResponse.of(service.recycleBin(keyword, fileType, deletedBy, packageId, operatorId), pageNum, pageSize));
+                                                                                @RequestParam(defaultValue = "20") int pageSize,
+                                                                                @AuthenticationPrincipal UserPrincipal p) {
+        return ApiResponse.ok(PageResponse.of(service.recycleBin(keyword, fileType, deletedBy, packageId, operatorId, p), pageNum, pageSize));
     }
 
     @PostMapping("/recycle-bin/{id}/restore")
