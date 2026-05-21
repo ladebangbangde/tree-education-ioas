@@ -10,9 +10,29 @@ import java.time.Instant;
 @Service
 public class TaskService {
     private final TaskRepository tasks;
+    private final TaskLogService taskLogService;
 
-    public TaskService(TaskRepository tasks) {
+    public TaskService(TaskRepository tasks, TaskLogService taskLogService) {
         this.tasks = tasks;
+        this.taskLogService = taskLogService;
+    }
+
+    @Transactional
+    public void createPackageCreatedTask(ContentPackage p) {
+        Task task = new Task();
+        task.setType(TaskType.package_create.name());
+        task.setTitle("主题创建 - " + p.getTopicName());
+        task.setTaskType(TaskType.package_create);
+        task.setRoleType(TaskRoleType.media);
+        task.setRelatedPackageId(p.getId());
+        task.setAssigneeId(p.getCreatedBy());
+        task.setAssigneeName(p.getCreatedByName());
+        task.setStatus(MediaTaskStatus.success.name());
+        task.setProgress(100);
+        task.setCompletedAt(Instant.now());
+        task.setUpdatedAt(Instant.now());
+        Task saved = tasks.save(task);
+        taskLogService.info(saved.getId(), "package created successfully, packageId=" + p.getId() + ", topicName=" + p.getTopicName());
     }
 
     @Transactional
@@ -28,7 +48,8 @@ public class TaskService {
         task.setStatus(MediaTaskStatus.pending_supplement.name());
         task.setProgress(0);
         task.setUpdatedAt(Instant.now());
-        tasks.save(task);
+        Task saved = tasks.save(task);
+        taskLogService.info(saved.getId(), "media upload placeholder task created, packageId=" + p.getId() + ", topicName=" + p.getTopicName());
     }
 
     @Transactional
@@ -47,7 +68,8 @@ public class TaskService {
         task.setProgress(hasAll ? 100 : hasAny ? 60 : 0);
         task.setCompletedAt(hasAll ? Instant.now() : null);
         task.setUpdatedAt(Instant.now());
-        tasks.save(task);
+        Task saved = tasks.save(task);
+        taskLogService.info(saved.getId(), "media upload task refreshed, status=" + task.getStatus() + ", progress=" + task.getProgress() + "%");
     }
 
     @Transactional
@@ -64,6 +86,7 @@ public class TaskService {
         task.setStatus(OperatorTaskStatus.pending.name());
         task.setProgress(0);
         task.setUpdatedAt(Instant.now());
-        tasks.save(task);
+        Task saved = tasks.save(task);
+        taskLogService.info(saved.getId(), "operator lead generation task created, packageId=" + packageId + ", leadId=" + leadId);
     }
 }
