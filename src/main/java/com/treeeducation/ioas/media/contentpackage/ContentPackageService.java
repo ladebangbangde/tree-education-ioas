@@ -65,6 +65,7 @@ public class ContentPackageService {
 
     public List<ContentPackageDtos.Response> list(String keyword, Long operatorId, ContentPackageStatus status, String tab, UserPrincipal principal) {
         return repo.findAll().stream()
+                .filter(p -> canViewPackage(p, principal))
                 .filter(p -> "recycle".equals(tab) ? p.getIsDeleted() : !p.getIsDeleted())
                 .filter(p -> keyword == null || p.getTopicName().contains(keyword) || (p.getFullPath() != null && p.getFullPath().contains(keyword)))
                 .filter(p -> operatorId == null || operatorId.equals(p.getOperatorId()))
@@ -81,8 +82,9 @@ public class ContentPackageService {
         return repo.findById(id).orElseThrow(() -> BusinessException.notFound("主题包不存在"));
     }
 
-    public ContentPackageDtos.DetailResponse detail(Long id) {
+    public ContentPackageDtos.DetailResponse detail(Long id, UserPrincipal principal) {
         ContentPackage p = get(id);
+        assertCanViewPackage(p, principal);
         if (Boolean.TRUE.equals(p.getIsDeleted())) {
             throw BusinessException.notFound("主题包不存在");
         }
@@ -96,6 +98,7 @@ public class ContentPackageService {
     @Transactional
     public ContentPackage update(Long id, ContentPackageDtos.UpsertRequest r, UserPrincipal p) {
         ContentPackage cp = get(id);
+        assertCanManagePackage(cp, p);
         String topicName = normalizeTopicName(r.topicName());
         if (topicName.isBlank()) {
             throw BusinessException.badRequest("主题包名称不能为空");
@@ -116,6 +119,7 @@ public class ContentPackageService {
     @Transactional
     public void delete(Long id, UserPrincipal p) {
         ContentPackage cp = get(id);
+        assertCanManagePackage(cp, p);
         cp.setIsDeleted(true);
         cp.setUploadStatus(ContentPackageStatus.deleted);
         cp.setDeletedAt(Instant.now());
@@ -143,6 +147,27 @@ public class ContentPackageService {
         tasks.refreshMediaUploadTask(cp);
     }
 
+    public boolean canViewPackage(ContentPackage p, UserPrincipal principal) {
+        if (p == null || principal == null) return false;
+        if (isSuperAdmin(principal)) return true;
+        if (isMedia(principal)) return p.getCreatedBy() != null && p.getCreatedBy().equals(principal.id());
+        if (isOperator(principal)) return p.getOperatorId() != null && p.getOperatorId().equals(principal.id());
+        return false;
+    }
+
+    public void assertCanViewPackage(ContentPackage p, UserPrincipal principal) {
+        if (!canViewPackage(p, principal)) {
+            throw BusinessException.forbidden("只能查看与自己绑定的主题包内容");
+        }
+    }
+
+    public void assertCanManagePackage(ContentPackage p, UserPrincipal principal) {
+        if (principal == null) throw BusinessException.forbidden("未登录");
+        if (isSuperAdmin(principal)) return;
+        if (isMedia(principal) && p != null && p.getCreatedBy() != null && p.getCreatedBy().equals(principal.id())) return;
+        throw BusinessException.forbidden("只能管理自己创建的主题包");
+    }
+
     private boolean existsActiveTopicName(String topicName, Long excludeId) {
         String normalized = normalizeTopicKey(topicName);
         return repo.findAll().stream()
@@ -161,6 +186,18 @@ public class ContentPackageService {
 
     private String buildPath(LocalDate date, String operatorName, String topicName) {
         return "/" + date.getYear() + "/" + String.format("%02d", date.getMonthValue()) + "/" + String.format("%02d", date.getDayOfMonth()) + "/" + operatorName + "/" + topicName;
+    }
+
+    private boolean isSuperAdmin(UserPrincipal p) {
+        return p != null && "SUPER_ADMIN".equalsIgnoreCase(p.role());
+    }
+
+    private boolean isMedia(UserPrincipal p) {
+        return p != null && "MEDIA".equalsIgnoreCase(p.role());
+    }
+
+    private boolean isOperator(UserPrincipal p) {
+        return p != null && "OPERATOR".equalsIgnoreCase(p.role());
     }
 
     private void audit(AuditAction a, String t, Long tid, Long actor, String d) {
