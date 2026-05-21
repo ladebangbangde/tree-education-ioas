@@ -9,7 +9,7 @@ import com.treeeducation.ioas.media.assetfile.AssetFileType;
 import com.treeeducation.ioas.media.assetfile.UploadStatus;
 import com.treeeducation.ioas.media.contentpackage.ContentPackage;
 import com.treeeducation.ioas.media.contentpackage.ContentPackageRepository;
-import com.treeeducation.ioas.media.contentpackage.ContentPackageStatus;
+import com.treeeducation.ioas.media.contentpackage.ContentPackageService;
 import com.treeeducation.ioas.task.dto.MultipartCompleteRequest;
 import com.treeeducation.ioas.task.dto.MultipartCreateRequest;
 import com.treeeducation.ioas.task.dto.MultipartCreateResponse;
@@ -47,10 +47,10 @@ import software.amazon.awssdk.services.s3.presigner.model.UploadPartPresignReque
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -65,6 +65,7 @@ public class UploadTaskController {
 
     private final TaskRepository taskRepository;
     private final ContentPackageRepository contentPackageRepository;
+    private final ContentPackageService contentPackageService;
     private final AssetFileRepository assetFileRepository;
     private final TaskLogService taskLogService;
     private final MinioClient minioClient;
@@ -86,6 +87,7 @@ public class UploadTaskController {
 
     public UploadTaskController(TaskRepository taskRepository,
                                 ContentPackageRepository contentPackageRepository,
+                                ContentPackageService contentPackageService,
                                 AssetFileRepository assetFileRepository,
                                 TaskLogService taskLogService,
                                 @Qualifier("minioClient") MinioClient minioClient,
@@ -94,6 +96,7 @@ public class UploadTaskController {
                                 @Qualifier("publicS3Presigner") S3Presigner publicS3Presigner) {
         this.taskRepository = taskRepository;
         this.contentPackageRepository = contentPackageRepository;
+        this.contentPackageService = contentPackageService;
         this.assetFileRepository = assetFileRepository;
         this.taskLogService = taskLogService;
         this.minioClient = minioClient;
@@ -108,10 +111,11 @@ public class UploadTaskController {
                                                    @AuthenticationPrincipal UserPrincipal p) {
         Long userId = p == null ? 0L : p.id();
         enforceConcurrencyLimit(userId, p);
-        Long packageId = resolvePackageId(request == null ? null : request.packageId());
-        ContentPackage pkg = contentPackageRepository.findById(packageId).orElse(null);
+        Long packageId = resolvePackageId(request == null ? null : request.packageId(), p);
+        ContentPackage pkg = contentPackageRepository.findById(packageId).orElseThrow(() -> BusinessException.notFound("主题包不存在"));
+        contentPackageService.assertCanManagePackage(pkg, p);
         String fileName = request == null ? "unknown" : valueOrDefault(request.fileName(), "unknown");
-        String topicName = pkg == null ? "未绑定主题" : pkg.getTopicName();
+        String topicName = pkg.getTopicName();
 
         Task task = new Task();
         task.setType("UPLOAD");
@@ -129,7 +133,7 @@ public class UploadTaskController {
         task.setUpdatedAt(Instant.now());
 
         Task saved = taskRepository.save(task);
-        taskLogService.info(saved.getId(), "task created for multipart/direct upload, fileName=" + fileName);
+        taskLogService.info(saved.getId(), "task created for multipart/direct upload, packageId=" + packageId + ", topicName=" + topicName + ", fileName=" + fileName);
         return ApiResponse.ok(toResponse(saved));
     }
 
@@ -140,14 +144,14 @@ public class UploadTaskController {
                                                                 @AuthenticationPrincipal UserPrincipal p) {
         Task task = taskRepository.findById(taskId).orElseThrow(() -> BusinessException.notFound("上传任务不存在"));
         assertOwner(task, p);
+        ContentPackage pkg = packageForTask(task, p, true);
         if ("cancelled".equalsIgnoreCase(task.getStatus())) {
             throw BusinessException.badRequest("任务已取消，无法上传");
         }
 
         String fileName = valueOrDefault(request == null ? null : request.fileName(), "upload-file");
-        String suffix = suffixOf(fileName);
-        String datePath = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd"));
-        String objectKey = "media/" + datePath + "/" + taskId + "-" + UUID.randomUUID() + suffix;
+        AssetFileType fileType = request == null || request.fileType() == null ? AssetFileType.script : request.fileType();
+        String objectKey = buildObjectKey(pkg, fileType, taskId, fileName);
         String mimeType = valueOrDefault(request == null ? null : request.mimeType(), "application/octet-stream");
         long fileSize = request == null || request.fileSize() == null ? 0L : Math.max(request.fileSize(), 0L);
         long partSize = normalizePartSize(request == null ? null : request.partSize());
@@ -188,6 +192,7 @@ public class UploadTaskController {
                                                          @AuthenticationPrincipal UserPrincipal p) {
         Task task = taskRepository.findById(taskId).orElseThrow(() -> BusinessException.notFound("上传任务不存在"));
         assertOwner(task, p);
+        packageForTask(task, p, true);
         if (task.getUploadId() == null || task.getUploadBucketName() == null || task.getUploadObjectKey() == null) {
             throw BusinessException.badRequest("任务没有可恢复的 Multipart 信息");
         }
@@ -232,6 +237,7 @@ public class UploadTaskController {
                                                               @AuthenticationPrincipal UserPrincipal p) {
         Task task = taskRepository.findById(taskId).orElseThrow(() -> BusinessException.notFound("上传任务不存在"));
         assertOwner(task, p);
+        packageForTask(task, p, true);
         if (isTerminalStatus(task.getStatus())) {
             return ApiResponse.ok(toResponse(task));
         }
@@ -251,12 +257,16 @@ public class UploadTaskController {
                                                            @AuthenticationPrincipal UserPrincipal p) {
         Task task = taskRepository.findById(taskId).orElseThrow(() -> BusinessException.notFound("上传任务不存在"));
         assertOwner(task, p);
+        packageForTask(task, p, true);
         String uploadId = valueOrDefault(request == null ? null : request.uploadId(), task.getUploadId());
         String bucketName = valueOrDefault(request == null ? null : request.bucketName(), task.getUploadBucketName());
         String objectKey = valueOrDefault(request == null ? null : request.objectKey(), task.getUploadObjectKey());
         Integer partNumber = request == null ? null : request.partNumber();
         if (uploadId == null || uploadId.isBlank() || bucketName == null || bucketName.isBlank() || objectKey == null || objectKey.isBlank() || partNumber == null || partNumber < 1) {
             throw BusinessException.badRequest("分片签名参数不完整");
+        }
+        if (!objectKey.equals(task.getUploadObjectKey())) {
+            throw BusinessException.forbidden("分片对象与任务不一致");
         }
 
         UploadPartRequest uploadPartRequest = UploadPartRequest.builder()
@@ -280,6 +290,7 @@ public class UploadTaskController {
         Task task = taskRepository.findById(taskId).orElseThrow(() -> BusinessException.notFound("上传任务不存在"));
         try {
             assertOwner(task, p);
+            packageForTask(task, p, true);
             if (request == null || request.parts() == null || request.parts().isEmpty()) {
                 throw BusinessException.badRequest("缺少已上传分片信息");
             }
@@ -288,6 +299,9 @@ public class UploadTaskController {
             String uploadId = valueOrDefault(request.uploadId(), task.getUploadId());
             if (bucketName == null || bucketName.isBlank() || objectKey == null || objectKey.isBlank() || uploadId == null || uploadId.isBlank()) {
                 throw BusinessException.badRequest("Multipart 完成参数不完整");
+            }
+            if (!bucketName.equals(task.getUploadBucketName()) || !objectKey.equals(task.getUploadObjectKey()) || !uploadId.equals(task.getUploadId())) {
+                throw BusinessException.forbidden("Multipart 完成参数与任务不一致");
             }
 
             task.setStatus("processing");
@@ -337,6 +351,7 @@ public class UploadTaskController {
                                                           @AuthenticationPrincipal UserPrincipal p) {
         Task task = taskRepository.findById(taskId).orElseThrow(() -> BusinessException.notFound("上传任务不存在"));
         assertOwner(task, p);
+        packageForTask(task, p, true);
         if (task.getUploadId() != null && task.getUploadBucketName() != null && task.getUploadObjectKey() != null) {
             internalS3Client.abortMultipartUpload(AbortMultipartUploadRequest.builder()
                     .bucket(task.getUploadBucketName())
@@ -362,14 +377,14 @@ public class UploadTaskController {
         Task task = taskRepository.findById(taskId)
                 .orElseThrow(() -> BusinessException.notFound("上传任务不存在"));
         assertOwner(task, p);
+        ContentPackage pkg = packageForTask(task, p, true);
         if ("cancelled".equalsIgnoreCase(task.getStatus())) {
             throw BusinessException.badRequest("任务已取消，无法上传");
         }
 
         String originalFileName = valueOrDefault(request == null ? null : request.fileName(), "upload-file");
-        String suffix = suffixOf(originalFileName);
-        String datePath = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd"));
-        String objectKey = "media/" + datePath + "/" + taskId + "-" + UUID.randomUUID() + suffix;
+        AssetFileType fileType = request == null || request.fileType() == null ? AssetFileType.script : request.fileType();
+        String objectKey = buildObjectKey(pkg, fileType, taskId, originalFileName);
         String uploadUrl = publicMinioClient.getPresignedObjectUrl(
                 GetPresignedObjectUrlArgs.builder()
                         .method(Method.PUT)
@@ -398,9 +413,12 @@ public class UploadTaskController {
 
     @GetMapping("/{taskId}")
     @Operation(summary = "查询上传任务状态")
-    public ApiResponse<UploadTaskResponse> get(@PathVariable Long taskId) {
+    public ApiResponse<UploadTaskResponse> get(@PathVariable Long taskId,
+                                               @AuthenticationPrincipal UserPrincipal p) {
         Task task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new IllegalArgumentException("upload task not found: " + taskId));
+        assertOwner(task, p);
+        packageForTask(task, p, false);
         return ApiResponse.ok(toResponse(task));
     }
 
@@ -412,6 +430,7 @@ public class UploadTaskController {
         Task task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new IllegalArgumentException("upload task not found: " + taskId));
         assertOwner(task, p);
+        packageForTask(task, p, true);
         int oldProgress = value(task.getProgress());
         int progress = request == null || request.progress() == null ? oldProgress : Math.max(0, Math.min(99, request.progress()));
         String status = valueOrDefault(request == null ? null : request.status(), "uploading");
@@ -447,8 +466,12 @@ public class UploadTaskController {
 
         try {
             assertOwner(task, p);
+            packageForTask(task, p, true);
             if (request == null || request.objectKey() == null || request.objectKey().isBlank()) {
                 throw BusinessException.badRequest("上传对象Key不能为空");
+            }
+            if (task.getUploadObjectKey() != null && !task.getUploadObjectKey().equals(request.objectKey())) {
+                throw BusinessException.forbidden("上传对象与任务不一致");
             }
             task.setStatus("processing");
             task.setProgress(95);
@@ -456,7 +479,7 @@ public class UploadTaskController {
             taskRepository.save(task);
             taskLogService.info(taskId, "complete requested, start stat object, objectKey=" + request.objectKey());
 
-            Long packageId = resolvePackageId(task.getRelatedPackageId());
+            Long packageId = resolvePackageId(task.getRelatedPackageId(), p);
             String bucketName = valueOrDefault(request.bucketName(), defaultBucketName);
             var stat = minioClient.statObject(StatObjectArgs.builder()
                     .bucket(bucketName)
@@ -523,6 +546,7 @@ public class UploadTaskController {
         Task task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new IllegalArgumentException("upload task not found: " + taskId));
         assertOwner(task, p);
+        packageForTask(task, p, true);
         task.setStatus("failed");
         task.setProgress(100);
         task.setErrorMessage(message);
@@ -566,23 +590,33 @@ public class UploadTaskController {
         throw BusinessException.forbidden("只能操作自己的上传任务");
     }
 
-    private Long resolvePackageId(Long packageId) {
-        if (packageId != null && packageId > 0 && contentPackageRepository.existsById(packageId)) {
-            return packageId;
+    private ContentPackage packageForTask(Task task, UserPrincipal p, boolean manage) {
+        Long packageId = task == null ? null : task.getRelatedPackageId();
+        if (packageId == null || packageId <= 0) {
+            throw BusinessException.badRequest("上传任务必须绑定主题包");
         }
+        ContentPackage pkg = contentPackageRepository.findById(packageId).orElseThrow(() -> BusinessException.notFound("主题包不存在"));
+        if (manage) {
+            contentPackageService.assertCanManagePackage(pkg, p);
+        } else {
+            contentPackageService.assertCanViewPackage(pkg, p);
+        }
+        if (Boolean.TRUE.equals(pkg.getIsDeleted())) {
+            throw BusinessException.badRequest("主题包已删除，不能继续操作上传任务");
+        }
+        return pkg;
+    }
 
-        ContentPackage contentPackage = new ContentPackage();
-        contentPackage.setPackageNo("PKG" + System.currentTimeMillis());
-        contentPackage.setTopicName("默认上传资源包");
-        contentPackage.setOperatorId(0L);
-        contentPackage.setOperatorName("system");
-        contentPackage.setFullPath("/default-upload");
-        contentPackage.setUploadStatus(ContentPackageStatus.completed);
-        contentPackage.setCreatedBy(0L);
-        contentPackage.setCreatedByName("system");
-
-        ContentPackage saved = contentPackageRepository.save(contentPackage);
-        return saved.getId();
+    private Long resolvePackageId(Long packageId, UserPrincipal p) {
+        if (packageId == null || packageId <= 0) {
+            throw BusinessException.badRequest("上传任务必须选择主题包");
+        }
+        ContentPackage pkg = contentPackageRepository.findById(packageId).orElseThrow(() -> BusinessException.notFound("主题包不存在"));
+        contentPackageService.assertCanManagePackage(pkg, p);
+        if (Boolean.TRUE.equals(pkg.getIsDeleted())) {
+            throw BusinessException.badRequest("主题包已删除，不能上传文件");
+        }
+        return packageId;
     }
 
     private UploadTaskResponse toResponse(Task task) {
@@ -610,6 +644,33 @@ public class UploadTaskController {
         return "success".equalsIgnoreCase(status) || "failed".equalsIgnoreCase(status) || "cancelled".equalsIgnoreCase(status) || "completed".equalsIgnoreCase(status) || "rejected".equalsIgnoreCase(status);
     }
 
+    private String buildObjectKey(ContentPackage pkg, AssetFileType fileType, Long taskId, String fileName) {
+        String type = fileType == null ? "script" : fileType.name().toLowerCase(Locale.ROOT);
+        String yyyy = String.valueOf(pkg.getFolderYear());
+        String mm = String.format("%02d", pkg.getFolderMonth());
+        String dd = String.format("%02d", pkg.getFolderDay());
+        return String.join("/",
+                "media",
+                safePathSegment(pkg.getOperatorName()),
+                yyyy,
+                mm,
+                dd,
+                safePathSegment(pkg.getTopicName()),
+                type,
+                taskId + "-" + UUID.randomUUID() + "-" + safeFileName(fileName));
+    }
+
+    private String safePathSegment(String value) {
+        String text = value == null || value.isBlank() ? "unknown" : value.trim();
+        return text.replaceAll("[\\\\/:*?\"<>|#%{}^~`\\[\\]]+", "-").replaceAll("\\s+", "_");
+    }
+
+    private String safeFileName(String fileName) {
+        String text = fileName == null || fileName.isBlank() ? "upload-file" : fileName.trim();
+        text = text.replaceAll("[\\\\/:*?\"<>|#%{}^~`\\[\\]]+", "-").replaceAll("\\s+", "_");
+        return text.length() > 180 ? text.substring(text.length() - 180) : text;
+    }
+
     private String normalizeEtag(String etag) {
         if (etag == null) return "";
         String trimmed = etag.trim();
@@ -627,11 +688,5 @@ public class UploadTaskController {
 
     private boolean shouldLogProgress(int oldProgress, int progress) {
         return progress == 1 || progress == 95 || progress % 5 == 0 || progress - oldProgress >= 5;
-    }
-
-    private String suffixOf(String fileName) {
-        if (fileName == null) return "";
-        int idx = fileName.lastIndexOf('.');
-        return idx >= 0 ? fileName.substring(idx) : "";
     }
 }
