@@ -13,6 +13,7 @@ import com.treeeducation.ioas.media.contentpackage.ContentPackageStatus;
 import com.treeeducation.ioas.task.dto.MultipartCompleteRequest;
 import com.treeeducation.ioas.task.dto.MultipartCreateRequest;
 import com.treeeducation.ioas.task.dto.MultipartCreateResponse;
+import com.treeeducation.ioas.task.dto.MultipartPartsResponse;
 import com.treeeducation.ioas.task.dto.MultipartSignPartRequest;
 import com.treeeducation.ioas.task.dto.MultipartSignPartResponse;
 import com.treeeducation.ioas.task.dto.UploadTaskCompleteRequest;
@@ -37,6 +38,8 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.ListPartsRequest;
+import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedUploadPartRequest;
@@ -55,7 +58,7 @@ import java.util.concurrent.TimeUnit;
 @RequestMapping("/api/upload-tasks")
 @Tag(name = "上传任务")
 public class UploadTaskController {
-    private static final List<String> RUNNING_STATUSES = List.of("created", "queued", "uploading", "processing");
+    private static final List<String> RUNNING_STATUSES = List.of("created", "queued", "uploading", "processing", "interrupted");
     private static final int PRESIGN_EXPIRE_SECONDS = 60 * 30;
     private static final long DEFAULT_MULTIPART_PART_SIZE = 10L * 1024L * 1024L;
     private static final long MIN_MULTIPART_PART_SIZE = 5L * 1024L * 1024L;
@@ -177,6 +180,68 @@ public class UploadTaskController {
         taskLogService.info(taskId, "multipart upload created, uploadId=" + uploadId + ", objectKey=" + objectKey + ", partSize=" + partSize + ", partCount=" + partCount + ", fileSize=" + fileSize);
 
         return ApiResponse.ok(new MultipartCreateResponse(taskId, defaultBucketName, objectKey, uploadId, publicUrl, partSize, partCount));
+    }
+
+    @GetMapping("/{taskId}/multipart/parts")
+    @Operation(summary = "查询 S3 Multipart 已上传分片")
+    public ApiResponse<MultipartPartsResponse> listParts(@PathVariable Long taskId,
+                                                         @AuthenticationPrincipal UserPrincipal p) {
+        Task task = taskRepository.findById(taskId).orElseThrow(() -> BusinessException.notFound("上传任务不存在"));
+        assertOwner(task, p);
+        if (task.getUploadId() == null || task.getUploadBucketName() == null || task.getUploadObjectKey() == null) {
+            throw BusinessException.badRequest("任务没有可恢复的 Multipart 信息");
+        }
+
+        List<Part> s3Parts = internalS3Client.listParts(ListPartsRequest.builder()
+                .bucket(task.getUploadBucketName())
+                .key(task.getUploadObjectKey())
+                .uploadId(task.getUploadId())
+                .build()).parts();
+        List<MultipartPartsResponse.Part> parts = s3Parts.stream()
+                .sorted(Comparator.comparing(Part::partNumber))
+                .map(part -> new MultipartPartsResponse.Part(part.partNumber(), part.eTag(), part.size()))
+                .toList();
+        long uploadedBytes = parts.stream().mapToLong(part -> part.size() == null ? 0L : part.size()).sum();
+        int completedPartCount = parts.size();
+        task.setUploadedBytes(uploadedBytes);
+        task.setCompletedPartCount(completedPartCount);
+        task.setLastProgressAt(Instant.now());
+        task.setUpdatedAt(Instant.now());
+        taskRepository.save(task);
+        taskLogService.info(taskId, "multipart parts listed, uploadedBytes=" + uploadedBytes + ", completedParts=" + completedPartCount + "/" + task.getPartCount());
+
+        long partSize = inferPartSize(task);
+        return ApiResponse.ok(new MultipartPartsResponse(
+                taskId,
+                task.getUploadBucketName(),
+                task.getUploadObjectKey(),
+                task.getUploadId(),
+                task.getFileSize(),
+                partSize,
+                task.getPartCount(),
+                completedPartCount,
+                uploadedBytes,
+                parts
+        ));
+    }
+
+    @PostMapping("/{taskId}/multipart/interrupt")
+    @Operation(summary = "标记 Multipart 上传中断，可稍后恢复")
+    public ApiResponse<UploadTaskResponse> interruptMultipart(@PathVariable Long taskId,
+                                                              @RequestParam(required = false) String message,
+                                                              @AuthenticationPrincipal UserPrincipal p) {
+        Task task = taskRepository.findById(taskId).orElseThrow(() -> BusinessException.notFound("上传任务不存在"));
+        assertOwner(task, p);
+        if (isTerminalStatus(task.getStatus())) {
+            return ApiResponse.ok(toResponse(task));
+        }
+        task.setStatus("interrupted");
+        task.setErrorMessage(valueOrDefault(message, "上传已中断，可重新选择同一文件继续上传"));
+        task.setLastProgressAt(Instant.now());
+        task.setUpdatedAt(Instant.now());
+        Task saved = taskRepository.save(task);
+        taskLogService.warn(taskId, "multipart upload interrupted, message=" + task.getErrorMessage());
+        return ApiResponse.ok(toResponse(saved));
     }
 
     @PostMapping("/{taskId}/multipart/sign-part")
@@ -532,6 +597,17 @@ public class UploadTaskController {
     private long normalizePartSize(Long requestedPartSize) {
         long size = requestedPartSize == null ? DEFAULT_MULTIPART_PART_SIZE : requestedPartSize;
         return Math.max(size, MIN_MULTIPART_PART_SIZE);
+    }
+
+    private long inferPartSize(Task task) {
+        long fileSize = task.getFileSize() == null ? 0L : task.getFileSize();
+        int partCount = task.getPartCount() == null || task.getPartCount() <= 0 ? 1 : task.getPartCount();
+        if (fileSize <= 0) return DEFAULT_MULTIPART_PART_SIZE;
+        return Math.max(MIN_MULTIPART_PART_SIZE, (long) Math.ceil((double) fileSize / (double) partCount));
+    }
+
+    private boolean isTerminalStatus(String status) {
+        return "success".equalsIgnoreCase(status) || "failed".equalsIgnoreCase(status) || "cancelled".equalsIgnoreCase(status) || "completed".equalsIgnoreCase(status) || "rejected".equalsIgnoreCase(status);
     }
 
     private String normalizeEtag(String etag) {
