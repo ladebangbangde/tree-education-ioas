@@ -2,9 +2,9 @@ spring:
   application:
     name: tree-education-ioas
   datasource:
-    url: ${IOAS_DATASOURCE_URL:jdbc:mysql://121.41.95.26:33306/tree_education_ioas?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true}
+    url: ${IOAS_DATASOURCE_URL:jdbc:mysql://localhost:3306/tree_education_ioas?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${IOAS_DATASOURCE_USERNAME:root}
-    password: ${IOAS_DATASOURCE_PASSWORD:ldbbd@2025}
+    password: ${IOAS_DATASOURCE_PASSWORD:change-me}
   servlet:
     multipart:
       enabled: true
@@ -23,8 +23,8 @@ spring:
     locations: classpath:db/migration
   data:
     redis:
-      host: ${IOAS_REDIS_HOST:121.41.65.26}
-      port: ${IOAS_REDIS_PORT:16379}
+      host: ${IOAS_REDIS_HOST:localhost}
+      port: ${IOAS_REDIS_PORT:6379}
 server:
   port: ${IOAS_SERVER_PORT:1201}
   tomcat:
@@ -49,7 +49,12 @@ ioas:
     max-user-running: ${IOAS_TASK_MAX_USER_RUNNING:3}
     max-global-running: ${IOAS_TASK_MAX_GLOBAL_RUNNING:20}
     cleanup:
+      enabled: ${IOAS_TASK_CLEANUP_ENABLED:true}
       fixed-delay-ms: ${IOAS_TASK_CLEANUP_FIXED_DELAY_MS:300000}
+      interrupted-retention-hours: ${IOAS_TASK_INTERRUPTED_RETENTION_HOURS:24}
+      failed-retention-days: ${IOAS_TASK_FAILED_RETENTION_DAYS:7}
+      cancelled-retention-days: ${IOAS_TASK_CANCELLED_RETENTION_DAYS:7}
+      success-log-retention-days: ${IOAS_TASK_SUCCESS_LOG_RETENTION_DAYS:30}
     log-dir: ${IOAS_TASK_LOG_DIR:/app/logs/upload-tasks}
   wecom:
     enabled: ${IOAS_WECOM_ENABLED:false}
