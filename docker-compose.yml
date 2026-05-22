@@ -12,7 +12,14 @@ services:
       IOAS_SERVER_PORT: ${IOAS_SERVER_PORT:-8080}
       IOAS_REDIS_HOST: ${IOAS_REDIS_HOST:-121.41.65.26}
       IOAS_REDIS_PORT: ${IOAS_REDIS_PORT:-16379}
+
+      # Internal Docker-network MinIO endpoint used only by backend services.
       IOAS_MINIO_ENDPOINT: http://minio:9000
+
+      # Public HTTPS MinIO endpoint used to generate browser-facing presigned URLs.
+      IOAS_MINIO_PUBLIC_ENDPOINT: ${IOAS_MINIO_PUBLIC_ENDPOINT:-https://minioapi.ldbbd.com}
+      IOAS_STORAGE_PUBLIC_BASE_URL: ${IOAS_STORAGE_PUBLIC_BASE_URL:-https://minioapi.ldbbd.com/ioas-assets}
+
       IOAS_MINIO_ACCESS_KEY: ${IOAS_MINIO_ACCESS_KEY:-minioadmin}
       IOAS_MINIO_SECRET_KEY: ${IOAS_MINIO_SECRET_KEY:-minioadmin123}
       IOAS_STORAGE_BUCKET: ${IOAS_STORAGE_BUCKET:-ioas-assets}
@@ -20,11 +27,6 @@ services:
       # Allow GB-level media/document uploads through Spring Boot multipart handling.
       SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:-5GB}
       SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:-5GB}
-
-      # Public URL returned by IOAS to frontend for file preview/download.
-      # Current test deployment uses server IP + exposed MinIO API port.
-      # Later production can switch to https://minioapi.ldbbd.com/ioas-assets.
-      IOAS_STORAGE_PUBLIC_BASE_URL: ${IOAS_STORAGE_PUBLIC_BASE_URL:-http://121.41.95.26:19000/ioas-assets}
     ports:
       - "${IOAS_HOST_PORT:-18080}:${IOAS_SERVER_PORT:-8080}"
     depends_on:
@@ -41,18 +43,16 @@ services:
       MINIO_ROOT_USER: ${IOAS_MINIO_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${IOAS_MINIO_SECRET_KEY:-minioadmin123}
 
-      # MinIO API public address. Current test deployment uses IP + port.
-      # This is used by the MinIO Console and generated file/API URLs.
-      MINIO_SERVER_URL: ${MINIO_SERVER_URL:-http://121.41.95.26:19000}
+      # Public HTTPS API address exposed through FRPC + Alibaba Cloud Nginx.
+      MINIO_SERVER_URL: ${MINIO_SERVER_URL:-https://minioapi.ldbbd.com}
 
-      # MinIO Console public address. Current test deployment uses IP + port.
-      # This prevents Console login/object browser redirects from pointing to an internal container address.
-      MINIO_BROWSER_REDIRECT_URL: ${MINIO_BROWSER_REDIRECT_URL:-http://121.41.95.26:19001}
+      # Public HTTPS console address exposed through FRPC + Alibaba Cloud Nginx.
+      MINIO_BROWSER_REDIRECT_URL: ${MINIO_BROWSER_REDIRECT_URL:-https://minioconsole.ldbbd.com}
     ports:
-      # Host API port -> MinIO container API port
+      # Host API port -> MinIO container API port. FRPC maps local 19000 to minioapi.ldbbd.com.
       - "${IOAS_MINIO_API_HOST_PORT:-19000}:9000"
 
-      # Host Console port -> MinIO container Console port
+      # Host Console port -> MinIO container Console port. FRPC maps local 19001 to minioconsole.ldbbd.com.
       - "${IOAS_MINIO_CONSOLE_HOST_PORT:-19001}:9001"
     volumes:
       - minio-data:/data
