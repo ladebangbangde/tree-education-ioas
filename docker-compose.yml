@@ -48,6 +48,9 @@ services:
 
       # Public HTTPS console address exposed through FRPC + Alibaba Cloud Nginx.
       MINIO_BROWSER_REDIRECT_URL: ${MINIO_BROWSER_REDIRECT_URL:-https://minioconsole.ldbbd.com}
+
+      # Allow browser direct uploads from the HTTPS frontend domain.
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_API_CORS_ALLOW_ORIGIN:-https://ioasfrontend.ldbbd.com}
     ports:
       # Host API port -> MinIO container API port. FRPC maps local 19000 to minioapi.ldbbd.com.
       - "${IOAS_MINIO_API_HOST_PORT:-19000}:9000"
