@@ -63,7 +63,9 @@ public class LeadService {
     }
 
     public List<LeadDtos.Response> list(String tab, String keyword, Long relatedPackageId, Long operatorId, UserPrincipal p) {
+        boolean consultant = "CONSULTANT".equalsIgnoreCase(p.role());
         return repo.findAll().stream()
+                .filter(l -> !consultant || p.id().equals(l.getAssignedTo()))
                 .filter(l -> relatedPackageId == null || relatedPackageId.equals(l.getRelatedPackageId()))
                 .filter(l -> operatorId == null || operatorId.equals(l.getOperatorId()))
                 .filter(l -> keyword == null || l.getStudentName().contains(keyword) || (l.getPhone() != null && l.getPhone().contains(keyword)) || (l.getLeadNo() != null && l.getLeadNo().contains(keyword)))
@@ -84,9 +86,20 @@ public class LeadService {
         return LeadDtos.of(l, packageName(l.getRelatedPackageId()));
     }
 
+    public LeadDtos.Response detailForUser(Long id, UserPrincipal p) {
+        Lead l = get(id);
+        if ("CONSULTANT".equalsIgnoreCase(p.role()) && !p.id().equals(l.getAssignedTo())) {
+            throw BusinessException.forbidden("无权查看该线索");
+        }
+        return LeadDtos.of(l, packageName(l.getRelatedPackageId()));
+    }
+
     @Transactional
     public Lead updateStatus(Long id, LeadStatus status, UserPrincipal p) {
         Lead l = get(id);
+        if ("CONSULTANT".equalsIgnoreCase(p.role()) && !p.id().equals(l.getAssignedTo())) {
+            throw BusinessException.forbidden("无权更新该线索");
+        }
         l.setStatus(status);
         l.setUpdatedAt(Instant.now());
         audit(AuditAction.update_lead, "lead", id, p.id(), l.getLeadNo() + ":" + status);
@@ -96,9 +109,14 @@ public class LeadService {
     @Transactional
     public Lead update(Long id, LeadDtos.UpdateRequest r, UserPrincipal p) {
         Lead l = get(id);
+        if ("CONSULTANT".equalsIgnoreCase(p.role()) && !p.id().equals(l.getAssignedTo())) {
+            throw BusinessException.forbidden("无权更新该线索");
+        }
         if (r.remark() != null) l.setRemark(r.remark());
-        if (r.assignedTo() != null) l.setAssignedTo(r.assignedTo());
-        if (r.assignedToName() != null) l.setAssignedToName(r.assignedToName());
+        if (!"CONSULTANT".equalsIgnoreCase(p.role())) {
+            if (r.assignedTo() != null) l.setAssignedTo(r.assignedTo());
+            if (r.assignedToName() != null) l.setAssignedToName(r.assignedToName());
+        }
         if (r.status() != null) l.setStatus(r.status());
         l.setUpdatedAt(Instant.now());
         audit(AuditAction.update_lead, "lead", id, p.id(), l.getLeadNo());
