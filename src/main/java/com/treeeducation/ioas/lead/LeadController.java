@@ -38,13 +38,13 @@ public class LeadController {
     @Operation(summary = "基于主题包创建线索")
     public ApiResponse<LeadDtos.Response> create(@Valid @RequestBody LeadDtos.CreateRequest r, @AuthenticationPrincipal UserPrincipal p) {
         Lead lead = service.create(r, p);
-        return ApiResponse.ok(service.detail(lead.getId()));
+        return ApiResponse.ok(service.detailForUser(lead.getId(), p));
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "线索详情")
-    public ApiResponse<LeadDtos.Response> get(@PathVariable Long id) {
-        return ApiResponse.ok(service.detail(id));
+    public ApiResponse<LeadDtos.Response> get(@PathVariable Long id, @AuthenticationPrincipal UserPrincipal p) {
+        return ApiResponse.ok(service.detailForUser(id, p));
     }
 
     @PatchMapping("/{id}/status")
@@ -52,7 +52,7 @@ public class LeadController {
     public ApiResponse<LeadDtos.Response> status(@PathVariable Long id, @Valid @RequestBody LeadDtos.StatusRequest r,
                                                   @AuthenticationPrincipal UserPrincipal p) {
         Lead lead = service.updateStatus(id, r.status(), p);
-        return ApiResponse.ok(service.detail(lead.getId()));
+        return ApiResponse.ok(service.detailForUser(lead.getId(), p));
     }
 
     @PatchMapping("/{id}")
@@ -60,6 +60,6 @@ public class LeadController {
     public ApiResponse<LeadDtos.Response> update(@PathVariable Long id, @RequestBody LeadDtos.UpdateRequest r,
                                                  @AuthenticationPrincipal UserPrincipal p) {
         Lead lead = service.update(id, r, p);
-        return ApiResponse.ok(service.detail(lead.getId()));
+        return ApiResponse.ok(service.detailForUser(lead.getId(), p));
     }
 }
