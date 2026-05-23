@@ -12,4 +12,16 @@ public interface ConsultantRegionRepository extends JpaRepository<ConsultantRegi
 
     @Query("select r from ConsultantRegion r where r.enabled = true order by r.sortOrder asc, r.id asc")
     List<ConsultantRegion> activeOptions();
+
+    @Query("""
+            select distinct r from ConsultantRegion r, ConsultantScope s, ConsultantProfile c
+            where r.enabled = true
+              and s.enabled = true
+              and c.enabled = true
+              and c.assignEnabled = true
+              and s.regionId = r.id
+              and s.consultantId = c.id
+            order by r.sortOrder asc, r.id asc
+            """)
+    List<ConsultantRegion> publicCoveredOptions();
 }
