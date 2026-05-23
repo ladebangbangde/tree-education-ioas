@@ -3,7 +3,6 @@ package com.treeeducation.ioas.lead;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-
 import java.time.Instant;
 
 /** Lead DTOs. */
@@ -23,16 +22,21 @@ public final class LeadDtos {
     public record UpdateRequest(String remark, Long assignedTo, String assignedToName, LeadStatus status) {}
 
     @Schema(description = "线索响应")
-    public record Response(Long id, String sourceType, Long relatedPackageId, Long operatorId, String leadNo, String studentName, String phone, String wechat,
-                           String sourceChannel, String targetCountry, String targetMajor, String budget,
-                           String degreeLevel, LeadStatus status, Long assignedTo, String assignedToName,
-                           String relatedPackageName, Instant createdAt,
-                           Instant updatedAt, String remark) {}
+    public record Response(Long id, String sourceType, Long relatedPackageId, Long operatorId, String leadNo,
+                           String studentName, String phone, String wechat, String sourceChannel, String sourcePage,
+                           String targetCountry, String targetMajor, String budget, String degreeLevel,
+                           Long intentionRegionId, String intentionRegionCode, String intentionRegionName,
+                           String assignMode, String assignReason, Instant assignedAt, String notifyStatus,
+                           LeadStatus status, Long assignedTo, String assignedToName, String relatedPackageName,
+                           Instant createdAt, Instant updatedAt, String remark) {}
 
     public static Response of(Lead l, String packageName) {
         return new Response(l.getId(), l.getSourceType(), l.getRelatedPackageId(), l.getOperatorId(), l.getLeadNo(),
-                l.getStudentName(), l.getPhone(), l.getWechat(), l.getSourceChannel(), l.getTargetCountry(),
-                l.getTargetMajor(), l.getBudget(), l.getDegreeLevel(), l.getStatus(), l.getAssignedTo(),
-                l.getAssignedToName(), packageName, l.getCreatedAt(), l.getUpdatedAt(), l.getRemark());
+                l.getStudentName(), l.getPhone(), l.getWechat(), l.getSourceChannel(), l.getSourcePage(),
+                l.getTargetCountry(), l.getTargetMajor(), l.getBudget(), l.getDegreeLevel(),
+                l.getIntentionRegionId(), l.getIntentionRegionCode(), l.getIntentionRegionName(),
+                l.getAssignMode(), l.getAssignReason(), l.getAssignedAt(), l.getNotifyStatus(),
+                l.getStatus(), l.getAssignedTo(), l.getAssignedToName(), packageName,
+                l.getCreatedAt(), l.getUpdatedAt(), l.getRemark());
     }
 }
