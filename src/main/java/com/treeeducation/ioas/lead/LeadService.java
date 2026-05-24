@@ -5,6 +5,7 @@ import com.treeeducation.ioas.auth.UserPrincipal;
 import com.treeeducation.ioas.common.BusinessException;
 import com.treeeducation.ioas.media.contentpackage.ContentPackage;
 import com.treeeducation.ioas.media.contentpackage.ContentPackageRepository;
+import com.treeeducation.ioas.notification.NotificationDtos;
 import com.treeeducation.ioas.notification.NotificationService;
 import com.treeeducation.ioas.system.operatorprofile.OperatorProfile;
 import com.treeeducation.ioas.system.operatorprofile.OperatorProfileRepository;
@@ -110,9 +111,20 @@ public class LeadService {
             tasks.createOfficialWebsiteLeadNotificationTask(
                     lead.getId(), lead.getStudentName(), lead.getTargetCountry(), advisor.getUserId(), advisor.getName()
             );
-            notifications.createLeadAssignedNotification(
-                    advisor.getUserId(), advisor.getName(), lead.getId(), lead.getStudentName(), lead.getTargetCountry(), lead.getPhone()
-            );
+            notifications.sendToUser(new NotificationDtos.SendRequest(
+                    advisor.getUserId(),
+                    "OPERATOR",
+                    "官网1分钟咨询新线索",
+                    "你收到一条官网1分钟咨询线索：" + safe(lead.getStudentName())
+                            + "，意向国家/地区：" + safe(lead.getTargetCountry())
+                            + "，电话：" + safe(lead.getPhone())
+                            + "。请尽快进入线索中心跟进。",
+                    "lead",
+                    lead.getId(),
+                    "/leads/" + lead.getId(),
+                    "LEAD_ASSIGNED",
+                    10
+            ));
         }
 
         audit(AuditAction.create_lead, "lead", lead.getId(), 0L,
