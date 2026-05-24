@@ -9,6 +9,7 @@ import com.treeeducation.ioas.media.assetfile.AssetFile;
 import com.treeeducation.ioas.media.assetfile.AssetFileRepository;
 import com.treeeducation.ioas.media.contentpackage.ContentPackage;
 import com.treeeducation.ioas.media.contentpackage.ContentPackageRepository;
+import com.treeeducation.ioas.notification.NotificationService;
 import com.treeeducation.ioas.task.dto.TaskBatchDeleteRequest;
 import io.minio.MinioClient;
 import io.minio.RemoveObjectArgs;
@@ -33,6 +34,7 @@ public class TaskController {
     private final AssetFileRepository assetFiles;
     private final AuditLogRepository audits;
     private final TaskLogService taskLogService;
+    private final NotificationService notificationService;
     private final MinioClient minioClient;
 
     public TaskController(TaskRepository repo,
@@ -40,12 +42,14 @@ public class TaskController {
                           AssetFileRepository assetFiles,
                           AuditLogRepository audits,
                           TaskLogService taskLogService,
+                          NotificationService notificationService,
                           @Qualifier("minioClient") MinioClient minioClient) {
         this.repo = repo;
         this.packages = packages;
         this.assetFiles = assetFiles;
         this.audits = audits;
         this.taskLogService = taskLogService;
+        this.notificationService = notificationService;
         this.minioClient = minioClient;
     }
 
@@ -154,16 +158,17 @@ public class TaskController {
                                                  @AuthenticationPrincipal UserPrincipal p) {
         Task t = repo.findById(id).orElseThrow(() -> BusinessException.notFound("任务不存在"));
         assertOwner(t, p);
+        String oldStatus = t.getStatus();
         if (r.status() != null) t.setStatus(r.status());
         if (r.progress() != null) t.setProgress(r.progress());
         if (r.errorMessage() != null) t.setErrorMessage(r.errorMessage());
         if (r.assigneeId() != null) t.setAssigneeId(r.assigneeId());
         if (r.assigneeName() != null) t.setAssigneeName(r.assigneeName());
-        if (MediaTaskStatus.success.name().equals(t.getStatus()) || OperatorTaskStatus.completed.name().equals(t.getStatus())) {
+        if (isCompletedStatus(t.getStatus())) {
             t.setCompletedAt(Instant.now());
         }
         t.setUpdatedAt(Instant.now());
-        repo.save(t);
+        Task saved = repo.save(t);
         AuditLog log = new AuditLog();
         log.setAction(AuditAction.update_task);
         log.setTargetType("task");
@@ -172,7 +177,10 @@ public class TaskController {
         log.setDetail(t.getStatus());
         audits.save(log);
         taskLogService.info(id, "task updated status=" + t.getStatus() + ", progress=" + t.getProgress());
-        return ApiResponse.ok(toResponse(t));
+        if (!isCompletedStatus(oldStatus) && isCompletedStatus(saved.getStatus())) {
+            notifyTaskCompleted(saved);
+        }
+        return ApiResponse.ok(toResponse(saved));
     }
 
     private PurgeResult purgeUploadObject(Task task) {
@@ -207,6 +215,27 @@ public class TaskController {
         return TaskDtos.of(task, contentPackage);
     }
 
+    private void notifyTaskCompleted(Task task) {
+        if (task.getAssigneeId() == null) {
+            return;
+        }
+        try {
+            notificationService.sendToUser(
+                    task.getAssigneeId(),
+                    task.getRoleType() == TaskRoleType.operator ? "OPERATOR" : "MEDIA",
+                    "任务已完成",
+                    "任务《" + safeText(task.getTitle(), "未命名任务") + "》已完成，请在任务中心查看。",
+                    "TASK_COMPLETED",
+                    task.getId(),
+                    "/tasks",
+                    "SUCCESS",
+                    20
+            );
+        } catch (RuntimeException ex) {
+            taskLogService.warn(task.getId(), "task completed notification failed: " + ex.getMessage());
+        }
+    }
+
     private void assertOwner(Task t, UserPrincipal p) {
         if (isSuperAdmin(p) || t.getAssigneeId() == null || p.id().equals(t.getAssigneeId())) return;
         throw BusinessException.forbidden("只能操作自己的任务");
@@ -214,6 +243,14 @@ public class TaskController {
 
     private boolean isSuperAdmin(UserPrincipal p) {
         return p != null && "SUPER_ADMIN".equalsIgnoreCase(p.role());
+    }
+
+    private boolean isCompletedStatus(String status) {
+        return MediaTaskStatus.success.name().equals(status) || OperatorTaskStatus.completed.name().equals(status);
+    }
+
+    private String safeText(String value, String defaultValue) {
+        return value == null || value.isBlank() ? defaultValue : value.trim();
     }
 
     private record PurgeResult(int objects, int assetRows) {}
