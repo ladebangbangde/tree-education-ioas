@@ -20,43 +20,40 @@ public class NotificationService {
     }
 
     @Transactional
-    public NotificationMessage create(Long receiverUserId, String receiverRole, String title, String content,
-                                      String bizType, Long bizId, String notificationType, Integer priority) {
+    public NotificationMessage sendToUser(NotificationDtos.SendRequest request) {
+        return sendToUser(request.receiverUserId(), request.receiverRole(), request.title(), request.content(),
+                request.bizType(), request.bizId(), request.actionUrl(), request.notificationType(), request.priority());
+    }
+
+    @Transactional
+    public NotificationMessage sendToUser(Long receiverUserId, String receiverRole, String title, String content,
+                                          String bizType, Long bizId, String actionUrl,
+                                          String notificationType, Integer priority) {
         if (receiverUserId == null) {
             return null;
         }
         NotificationMessage message = new NotificationMessage();
         message.setReceiverUserId(receiverUserId);
-        message.setReceiverRole(receiverRole);
-        message.setTitle(title);
-        message.setContent(content);
-        message.setBizType(bizType);
+        message.setReceiverRole(blankToNull(receiverRole));
+        message.setTitle(required(title, "通知标题不能为空"));
+        message.setContent(blankToNull(content));
+        message.setBizType(required(bizType, "业务类型不能为空"));
         message.setBizId(bizId);
-        message.setNotificationType(notificationType == null ? "INFO" : notificationType);
+        message.setActionUrl(blankToNull(actionUrl));
+        message.setNotificationType(blankToDefault(notificationType, "INFO"));
         message.setPriority(priority == null ? 0 : priority);
         message.setReadStatus(READ_STATUS_UNREAD);
         return repository.save(message);
     }
 
-    @Transactional
-    public NotificationMessage createLeadAssignedNotification(Long receiverUserId, String receiverName, Long leadId,
-                                                              String studentName, String targetCountry, String phone) {
-        String title = "官网1分钟咨询新线索";
-        String content = "你收到一条官网1分钟咨询线索：" + safe(studentName)
-                + "，意向国家/地区：" + safe(targetCountry)
-                + "，电话：" + safe(phone)
-                + "。请尽快进入线索中心跟进。";
-        return create(receiverUserId, "OPERATOR", title, content, "lead", leadId, "LEAD_ASSIGNED", 10);
-    }
-
-    public PageResponse<NotificationMessage> listMine(Long receiverUserId, String readStatus, int pageNum, int pageSize) {
+    public PageResponse<NotificationDtos.Response> listMine(Long receiverUserId, String readStatus, int pageNum, int pageSize) {
         List<NotificationMessage> rows;
         if (readStatus == null || readStatus.isBlank()) {
             rows = repository.findByReceiverUserIdOrderByCreatedAtDesc(receiverUserId);
         } else {
             rows = repository.findByReceiverUserIdAndReadStatusOrderByCreatedAtDesc(receiverUserId, readStatus.trim().toUpperCase());
         }
-        return PageResponse.of(rows, pageNum, pageSize);
+        return PageResponse.of(rows.stream().map(NotificationDtos.Response::of).toList(), pageNum, pageSize);
     }
 
     public long unreadCount(Long receiverUserId) {
@@ -64,7 +61,7 @@ public class NotificationService {
     }
 
     @Transactional
-    public NotificationMessage markRead(Long receiverUserId, Long notificationId) {
+    public NotificationDtos.Response markRead(Long receiverUserId, Long notificationId) {
         NotificationMessage message = repository.findById(notificationId)
                 .orElseThrow(() -> BusinessException.notFound("通知不存在"));
         if (!receiverUserId.equals(message.getReceiverUserId())) {
@@ -74,7 +71,7 @@ public class NotificationService {
             message.setReadStatus(READ_STATUS_READ);
             message.setReadAt(Instant.now());
         }
-        return repository.save(message);
+        return NotificationDtos.Response.of(repository.save(message));
     }
 
     @Transactional
@@ -89,7 +86,22 @@ public class NotificationService {
         return rows.size();
     }
 
-    private String safe(String value) {
-        return value == null || value.isBlank() ? "未填写" : value.trim();
+    private String required(String value, String message) {
+        String cleaned = blankToNull(value);
+        if (cleaned == null) {
+            throw BusinessException.badRequest(message);
+        }
+        return cleaned;
+    }
+
+    private String blankToDefault(String value, String defaultValue) {
+        String cleaned = blankToNull(value);
+        return cleaned == null ? defaultValue : cleaned;
+    }
+
+    private String blankToNull(String value) {
+        if (value == null) return null;
+        String cleaned = value.trim();
+        return cleaned.isEmpty() ? null : cleaned;
     }
 }
