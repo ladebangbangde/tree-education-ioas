@@ -9,6 +9,8 @@ import java.time.Instant;
 /** Keeps media/operator tasks synchronized with package, upload and lead events. */
 @Service
 public class TaskService {
+    public static final String PACKAGE_UPLOAD_TASK_TYPE = "PACKAGE_MEDIA_UPLOAD";
+
     private final TaskRepository tasks;
     private final TaskLogService taskLogService;
 
@@ -37,9 +39,9 @@ public class TaskService {
 
     @Transactional
     public void ensureMediaUploadTask(ContentPackage p) {
-        Task task = tasks.findFirstByTaskTypeAndRelatedPackageId(TaskType.media_upload, p.getId()).orElseGet(Task::new);
-        task.setType(TaskType.media_upload.name());
-        task.setTitle("媒体素材上传 - " + p.getTopicName());
+        Task task = tasks.findFirstByTaskTypeAndRelatedPackageIdAndType(TaskType.media_upload, p.getId(), PACKAGE_UPLOAD_TASK_TYPE).orElseGet(Task::new);
+        task.setType(PACKAGE_UPLOAD_TASK_TYPE);
+        task.setTitle("主题素材上传 - " + p.getTopicName());
         task.setTaskType(TaskType.media_upload);
         task.setRoleType(TaskRoleType.media);
         task.setRelatedPackageId(p.getId());
@@ -49,14 +51,14 @@ public class TaskService {
         task.setProgress(0);
         task.setUpdatedAt(Instant.now());
         Task saved = tasks.save(task);
-        taskLogService.info(saved.getId(), "media upload placeholder task created, packageId=" + p.getId() + ", topicName=" + p.getTopicName());
+        taskLogService.info(saved.getId(), "package-level media upload placeholder task created, packageId=" + p.getId() + ", topicName=" + p.getTopicName());
     }
 
     @Transactional
     public void refreshMediaUploadTask(ContentPackage p) {
-        Task task = tasks.findFirstByTaskTypeAndRelatedPackageId(TaskType.media_upload, p.getId()).orElseGet(Task::new);
-        task.setType(TaskType.media_upload.name());
-        task.setTitle("媒体素材上传 - " + p.getTopicName());
+        Task task = tasks.findFirstByTaskTypeAndRelatedPackageIdAndType(TaskType.media_upload, p.getId(), PACKAGE_UPLOAD_TASK_TYPE).orElseGet(Task::new);
+        task.setType(PACKAGE_UPLOAD_TASK_TYPE);
+        task.setTitle("主题素材上传 - " + p.getTopicName());
         task.setTaskType(TaskType.media_upload);
         task.setRoleType(TaskRoleType.media);
         task.setRelatedPackageId(p.getId());
@@ -69,7 +71,7 @@ public class TaskService {
         task.setCompletedAt(hasAll ? Instant.now() : null);
         task.setUpdatedAt(Instant.now());
         Task saved = tasks.save(task);
-        taskLogService.info(saved.getId(), "media upload task refreshed, status=" + task.getStatus() + ", progress=" + task.getProgress() + "%");
+        taskLogService.info(saved.getId(), "package media upload task refreshed, status=" + task.getStatus() + ", progress=" + task.getProgress() + "%");
     }
 
     @Transactional
