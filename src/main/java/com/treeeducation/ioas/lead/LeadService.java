@@ -5,6 +5,7 @@ import com.treeeducation.ioas.auth.UserPrincipal;
 import com.treeeducation.ioas.common.BusinessException;
 import com.treeeducation.ioas.media.contentpackage.ContentPackage;
 import com.treeeducation.ioas.media.contentpackage.ContentPackageRepository;
+import com.treeeducation.ioas.notification.NotificationService;
 import com.treeeducation.ioas.system.operatorprofile.OperatorProfile;
 import com.treeeducation.ioas.system.operatorprofile.OperatorProfileRepository;
 import com.treeeducation.ioas.task.TaskService;
@@ -25,14 +26,16 @@ public class LeadService {
     private final OperatorProfileRepository operators;
     private final TaskService tasks;
     private final AuditLogRepository audits;
+    private final NotificationService notifications;
 
     public LeadService(LeadRepository repo, ContentPackageRepository packages, OperatorProfileRepository operators,
-                       TaskService tasks, AuditLogRepository audits) {
+                       TaskService tasks, AuditLogRepository audits, NotificationService notifications) {
         this.repo = repo;
         this.packages = packages;
         this.operators = operators;
         this.tasks = tasks;
         this.audits = audits;
+        this.notifications = notifications;
     }
 
     @Transactional
@@ -106,6 +109,9 @@ public class LeadService {
         if (advisor != null) {
             tasks.createOfficialWebsiteLeadNotificationTask(
                     lead.getId(), lead.getStudentName(), lead.getTargetCountry(), advisor.getUserId(), advisor.getName()
+            );
+            notifications.createLeadAssignedNotification(
+                    advisor.getUserId(), advisor.getName(), lead.getId(), lead.getStudentName(), lead.getTargetCountry(), lead.getPhone()
             );
         }
 
