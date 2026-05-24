@@ -10,7 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 
-@Service
+@Service("consultantModulePublicConsultationService")
 public class PublicConsultationService {
     private final ConsultantRegionRepository regions;
     private final ConsultantAssignmentService assignmentService;
