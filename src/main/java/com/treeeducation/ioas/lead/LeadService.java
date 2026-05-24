@@ -113,7 +113,7 @@ public class LeadService {
             );
             notifications.sendToUser(new NotificationDtos.SendRequest(
                     advisor.getUserId(),
-                    "OPERATOR",
+                    "CONSULTANT",
                     "官网1分钟咨询新线索",
                     "你收到一条官网1分钟咨询线索：" + safe(lead.getStudentName())
                             + "，意向国家/地区：" + safe(lead.getTargetCountry())
