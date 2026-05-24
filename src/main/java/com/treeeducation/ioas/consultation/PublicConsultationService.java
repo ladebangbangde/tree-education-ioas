@@ -9,7 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 
-@Service
+@Service("consultationModulePublicConsultationService")
 public class PublicConsultationService {
     private final LeadRepository leads;
     private final ConsultantAssignmentService assignmentService;
