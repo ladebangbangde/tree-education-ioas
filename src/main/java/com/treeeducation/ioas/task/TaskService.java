@@ -89,4 +89,26 @@ public class TaskService {
         Task saved = tasks.save(task);
         taskLogService.info(saved.getId(), "operator lead generation task created, packageId=" + packageId + ", leadId=" + leadId);
     }
+
+    @Transactional
+    public void createOfficialWebsiteLeadNotificationTask(Long leadId, String studentName, String targetCountry,
+                                                          Long assigneeId, String assigneeName) {
+        Task task = new Task();
+        task.setType(TaskType.operator_lead_generate.name());
+        task.setTitle("官网1分钟咨询新线索 - " + safe(studentName) + " / " + safe(targetCountry));
+        task.setTaskType(TaskType.operator_lead_generate);
+        task.setRoleType(TaskRoleType.operator);
+        task.setRelatedLeadId(leadId);
+        task.setAssigneeId(assigneeId);
+        task.setAssigneeName(assigneeName);
+        task.setStatus(OperatorTaskStatus.pending.name());
+        task.setProgress(0);
+        task.setUpdatedAt(Instant.now());
+        Task saved = tasks.save(task);
+        taskLogService.info(saved.getId(), "official website lead notification created, leadId=" + leadId + ", studentName=" + safe(studentName) + ", targetCountry=" + safe(targetCountry) + ", assigneeName=" + safe(assigneeName));
+    }
+
+    private String safe(String value) {
+        return value == null || value.isBlank() ? "未填写" : value.trim();
+    }
 }
