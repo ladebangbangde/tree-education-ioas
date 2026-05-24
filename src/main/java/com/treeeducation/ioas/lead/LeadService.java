@@ -158,18 +158,14 @@ public class LeadService {
 
     public LeadDtos.Response detailForUser(Long id, UserPrincipal p) {
         Lead l = get(id);
-        if ("CONSULTANT".equalsIgnoreCase(p.role()) && !p.id().equals(l.getAssignedTo())) {
-            throw BusinessException.forbidden("无权查看该线索");
-        }
+        assertCanRead(l, p);
         return LeadDtos.of(l, packageName(l.getRelatedPackageId()));
     }
 
     @Transactional
     public Lead updateStatus(Long id, LeadStatus status, UserPrincipal p) {
         Lead l = get(id);
-        if ("CONSULTANT".equalsIgnoreCase(p.role()) && !p.id().equals(l.getAssignedTo())) {
-            throw BusinessException.forbidden("无权更新该线索");
-        }
+        assertCanMutate(l, p);
         l.setStatus(status);
         l.setUpdatedAt(Instant.now());
         audit(AuditAction.update_lead, "lead", id, p.id(), l.getLeadNo() + ":" + status);
@@ -179,9 +175,7 @@ public class LeadService {
     @Transactional
     public Lead update(Long id, LeadDtos.UpdateRequest r, UserPrincipal p) {
         Lead l = get(id);
-        if ("CONSULTANT".equalsIgnoreCase(p.role()) && !p.id().equals(l.getAssignedTo())) {
-            throw BusinessException.forbidden("无权更新该线索");
-        }
+        assertCanMutate(l, p);
         if (r.remark() != null) l.setRemark(r.remark());
         if (!"CONSULTANT".equalsIgnoreCase(p.role())) {
             if (r.assignedTo() != null) l.setAssignedTo(r.assignedTo());
@@ -191,6 +185,31 @@ public class LeadService {
         l.setUpdatedAt(Instant.now());
         audit(AuditAction.update_lead, "lead", id, p.id(), l.getLeadNo());
         return l;
+    }
+
+    @Transactional
+    public void delete(Long id, UserPrincipal p) {
+        Lead lead = get(id);
+        assertCanMutate(lead, p);
+        repo.delete(lead);
+        audit(AuditAction.update_lead, "lead", id, p.id(), "delete:" + safe(lead.getLeadNo()));
+    }
+
+    private void assertCanRead(Lead lead, UserPrincipal p) {
+        if (p == null) throw BusinessException.forbidden("请先登录");
+        if ("SUPER_ADMIN".equalsIgnoreCase(p.role())) return;
+        if ("CONSULTANT".equalsIgnoreCase(p.role()) && p.id().equals(lead.getAssignedTo())) return;
+        if ("OPERATOR".equalsIgnoreCase(p.role()) && (p.id().equals(lead.getOperatorId()) || p.id().equals(lead.getAssignedTo()))) return;
+        if ("MEDIA".equalsIgnoreCase(p.role())) return;
+        throw BusinessException.forbidden("无权查看该线索");
+    }
+
+    private void assertCanMutate(Lead lead, UserPrincipal p) {
+        if (p == null) throw BusinessException.forbidden("请先登录");
+        if ("SUPER_ADMIN".equalsIgnoreCase(p.role())) return;
+        if ("CONSULTANT".equalsIgnoreCase(p.role()) && p.id().equals(lead.getAssignedTo())) return;
+        if ("OPERATOR".equalsIgnoreCase(p.role()) && (p.id().equals(lead.getOperatorId()) || p.id().equals(lead.getAssignedTo()))) return;
+        throw BusinessException.forbidden("无权操作该线索");
     }
 
     private Optional<OperatorProfile> pickAdvisor(String destination) {
