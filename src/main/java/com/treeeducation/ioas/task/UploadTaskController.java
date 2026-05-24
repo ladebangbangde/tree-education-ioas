@@ -10,6 +10,7 @@ import com.treeeducation.ioas.media.assetfile.UploadStatus;
 import com.treeeducation.ioas.media.contentpackage.ContentPackage;
 import com.treeeducation.ioas.media.contentpackage.ContentPackageRepository;
 import com.treeeducation.ioas.media.contentpackage.ContentPackageService;
+import com.treeeducation.ioas.notification.NotificationService;
 import com.treeeducation.ioas.task.dto.MultipartCompleteRequest;
 import com.treeeducation.ioas.task.dto.MultipartCreateRequest;
 import com.treeeducation.ioas.task.dto.MultipartCreateResponse;
@@ -47,7 +48,6 @@ import software.amazon.awssdk.services.s3.presigner.model.UploadPartPresignReque
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -68,6 +68,7 @@ public class UploadTaskController {
     private final ContentPackageService contentPackageService;
     private final AssetFileRepository assetFileRepository;
     private final TaskLogService taskLogService;
+    private final NotificationService notificationService;
     private final MinioClient minioClient;
     private final MinioClient publicMinioClient;
     private final S3Client internalS3Client;
@@ -90,6 +91,7 @@ public class UploadTaskController {
                                 ContentPackageService contentPackageService,
                                 AssetFileRepository assetFileRepository,
                                 TaskLogService taskLogService,
+                                NotificationService notificationService,
                                 @Qualifier("minioClient") MinioClient minioClient,
                                 @Qualifier("publicMinioClient") MinioClient publicMinioClient,
                                 @Qualifier("internalS3Client") S3Client internalS3Client,
@@ -99,6 +101,7 @@ public class UploadTaskController {
         this.contentPackageService = contentPackageService;
         this.assetFileRepository = assetFileRepository;
         this.taskLogService = taskLogService;
+        this.notificationService = notificationService;
         this.minioClient = minioClient;
         this.publicMinioClient = publicMinioClient;
         this.internalS3Client = internalS3Client;
@@ -147,6 +150,16 @@ public class UploadTaskController {
         ContentPackage pkg = packageForTask(task, p, true);
         if ("cancelled".equalsIgnoreCase(task.getStatus())) {
             throw BusinessException.badRequest("任务已取消，无法上传");
+        }
+        if (hasRecoverableMultipart(task)) {
+            long partSize = inferPartSize(task);
+            int partCount = task.getPartCount() == null || task.getPartCount() <= 0 ? 1 : task.getPartCount();
+            task.setStatus("uploading");
+            task.setProgress(Math.max(1, value(task.getProgress())));
+            task.setUpdatedAt(Instant.now());
+            taskRepository.save(task);
+            taskLogService.info(taskId, "reuse recoverable multipart upload, uploadId=" + task.getUploadId() + ", objectKey=" + task.getUploadObjectKey());
+            return ApiResponse.ok(new MultipartCreateResponse(taskId, task.getUploadBucketName(), task.getUploadObjectKey(), task.getUploadId(), task.getUploadPublicUrl(), partSize, partCount));
         }
 
         String fileName = valueOrDefault(request == null ? null : request.fileName(), "upload-file");
@@ -525,6 +538,8 @@ public class UploadTaskController {
             task.setUpdatedAt(Instant.now());
             task.setErrorMessage(null);
             Task saved = taskRepository.save(task);
+            contentPackageService.refreshCountsAndStatus(packageId);
+            notifyUploadSuccess(saved, fileName, packageId);
             taskLogService.info(taskId, "task success after direct/multipart upload, assetFileId=" + assetFile.getId());
             return ApiResponse.ok(toResponse(saved));
         } catch (RuntimeException ex) {
@@ -564,6 +579,24 @@ public class UploadTaskController {
         task.setCompletedAt(Instant.now());
         task.setUpdatedAt(Instant.now());
         taskRepository.save(task);
+    }
+
+    private void notifyUploadSuccess(Task task, String fileName, Long packageId) {
+        try {
+            notificationService.sendToUser(
+                    task.getAssigneeId(),
+                    "MEDIA",
+                    "上传任务已完成",
+                    "文件《" + safeText(fileName, "未命名文件") + "》已上传成功，主题包ID：" + packageId,
+                    "UPLOAD_TASK",
+                    task.getId(),
+                    "/tasks",
+                    "SUCCESS",
+                    20
+            );
+        } catch (RuntimeException ignored) {
+            taskLogService.warn(task.getId(), "upload success notification failed: " + ignored.getMessage());
+        }
     }
 
     private void enforceConcurrencyLimit(Long userId, UserPrincipal p) {
@@ -628,6 +661,14 @@ public class UploadTaskController {
         );
     }
 
+    private boolean hasRecoverableMultipart(Task task) {
+        return task.getUploadId() != null && !task.getUploadId().isBlank()
+                && task.getUploadBucketName() != null && !task.getUploadBucketName().isBlank()
+                && task.getUploadObjectKey() != null && !task.getUploadObjectKey().isBlank()
+                && !"cancelled".equalsIgnoreCase(task.getStatus())
+                && !"success".equalsIgnoreCase(task.getStatus());
+    }
+
     private long normalizePartSize(Long requestedPartSize) {
         long size = requestedPartSize == null ? DEFAULT_MULTIPART_PART_SIZE : requestedPartSize;
         return Math.max(size, MIN_MULTIPART_PART_SIZE);
@@ -680,6 +721,10 @@ public class UploadTaskController {
 
     private String valueOrDefault(String value, String defaultValue) {
         return value == null || value.isBlank() ? defaultValue : value;
+    }
+
+    private String safeText(String value, String defaultValue) {
+        return value == null || value.isBlank() ? defaultValue : value.trim();
     }
 
     private int value(Integer v) {
