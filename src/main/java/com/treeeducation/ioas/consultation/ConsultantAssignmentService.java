@@ -8,7 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 
-@Service
+@Service("consultationModuleAssignmentService")
 public class ConsultantAssignmentService {
     private final ConsultantRegionRepository regions;
     private final ConsultantScopeRepository scopes;
