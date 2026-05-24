@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-@RestController
+@RestController("notificationCenterController")
 @RequestMapping("/api/v1/notifications")
 @Tag(name = "Notification", description = "通用站内通知中心")
 public class NotificationController {
