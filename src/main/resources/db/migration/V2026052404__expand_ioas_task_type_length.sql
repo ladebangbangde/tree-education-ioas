@@ -1,0 +1,2 @@
+ALTER TABLE ioas_task
+    MODIFY COLUMN type VARCHAR(50) NOT NULL;
