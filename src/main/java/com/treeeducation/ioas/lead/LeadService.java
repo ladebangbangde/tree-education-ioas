@@ -5,6 +5,7 @@ import com.treeeducation.ioas.auth.UserPrincipal;
 import com.treeeducation.ioas.common.BusinessException;
 import com.treeeducation.ioas.media.contentpackage.ContentPackage;
 import com.treeeducation.ioas.media.contentpackage.ContentPackageRepository;
+import com.treeeducation.ioas.system.operatorprofile.OperatorProfile;
 import com.treeeducation.ioas.system.operatorprofile.OperatorProfileRepository;
 import com.treeeducation.ioas.task.TaskService;
 import org.springframework.stereotype.Service;
@@ -13,6 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
 
 /** Lead application service aligned with the frontend lead center. */
 @Service
@@ -55,11 +58,60 @@ public class LeadService {
         l = repo.save(l);
         Long taskAssignee = l.getAssignedTo() == null ? l.getOperatorId() : l.getAssignedTo();
         String taskAssigneeName = l.getAssignedToName() == null
-                ? (taskAssignee == null ? null : operators.findById(taskAssignee).map(o -> o.getName()).orElse(null))
+                ? (taskAssignee == null ? null : operators.findById(taskAssignee).map(OperatorProfile::getName).orElse(null))
                 : l.getAssignedToName();
         tasks.createOperatorLeadTask(cp.getId(), l.getId(), taskAssignee, taskAssigneeName);
         audit(AuditAction.create_lead, "lead", l.getId(), p.id(), l.getStudentName());
         return l;
+    }
+
+    @Transactional
+    public Lead createOfficialWebsiteLead(LeadDtos.OfficialWebsiteRequest r, String sourcePage, String userAgent) {
+        OperatorProfile advisor = pickAdvisor(clean(r.destination())).orElse(null);
+
+        Lead lead = new Lead();
+        lead.setLeadNo("WEB" + System.currentTimeMillis());
+        lead.setSourceType("official_website");
+        lead.setStudentName(clean(r.name()));
+        lead.setPhone(clean(r.phone()));
+        lead.setWechat(clean(r.wechat()));
+        lead.setSourceChannel(clean(r.source()) == null ? "official_website_one_minute_consultation" : clean(r.source()));
+        lead.setSourcePage(clean(sourcePage));
+        lead.setTargetCountry(clean(r.destination()));
+        lead.setIntentionRegionCode(clean(r.destination()));
+        lead.setIntentionRegionName(clean(r.destination()));
+        lead.setBudget(clean(r.budget()));
+        lead.setDegreeLevel(clean(r.education()));
+        lead.setRemark(buildOfficialWebsiteRemark(r, userAgent));
+        lead.setUpdatedAt(Instant.now());
+
+        if (advisor == null) {
+            lead.setStatus(LeadStatus.unassigned);
+            lead.setAssignMode("manual_required");
+            lead.setAssignReason("官网1分钟咨询线索已创建，但当前没有启用顾问，需要后台手动分配");
+            lead.setNotifyStatus("pending_manual_assign");
+        } else {
+            lead.setStatus(LeadStatus.assigned);
+            lead.setAssignedTo(advisor.getUserId());
+            lead.setAssignedToName(advisor.getName());
+            lead.setOperatorId(advisor.getId());
+            lead.setAssignMode(matchAdvisor(advisor, clean(r.destination())) ? "region_match" : "fallback_enabled_advisor");
+            lead.setAssignReason(buildAssignReason(advisor, clean(r.destination())));
+            lead.setAssignedAt(Instant.now());
+            lead.setNotifyStatus("notified");
+        }
+
+        lead = repo.save(lead);
+
+        if (advisor != null) {
+            tasks.createOfficialWebsiteLeadNotificationTask(
+                    lead.getId(), lead.getStudentName(), lead.getTargetCountry(), advisor.getUserId(), advisor.getName()
+            );
+        }
+
+        audit(AuditAction.create_lead, "lead", lead.getId(), 0L,
+                "官网1分钟咨询提交：" + lead.getStudentName() + "，意向=" + safe(lead.getTargetCountry()) + "，顾问=" + safe(lead.getAssignedToName()));
+        return lead;
     }
 
     public List<LeadDtos.Response> list(String tab, String keyword, Long relatedPackageId, Long operatorId, UserPrincipal p) {
@@ -121,6 +173,59 @@ public class LeadService {
         l.setUpdatedAt(Instant.now());
         audit(AuditAction.update_lead, "lead", id, p.id(), l.getLeadNo());
         return l;
+    }
+
+    private Optional<OperatorProfile> pickAdvisor(String destination) {
+        List<OperatorProfile> enabled = operators.findByEnabledTrueOrderByNameAsc();
+        if (enabled.isEmpty()) return Optional.empty();
+        return enabled.stream()
+                .filter(operator -> matchAdvisor(operator, destination))
+                .findFirst()
+                .or(() -> enabled.stream().findFirst());
+    }
+
+    private boolean matchAdvisor(OperatorProfile operator, String destination) {
+        if (operator == null || destination == null || destination.isBlank()) return false;
+        String keyword = destination.trim().toLowerCase(Locale.ROOT);
+        return containsIgnoreCase(operator.getTeamName(), keyword) || containsIgnoreCase(operator.getName(), keyword);
+    }
+
+    private boolean containsIgnoreCase(String value, String keyword) {
+        return value != null && keyword != null && value.toLowerCase(Locale.ROOT).contains(keyword);
+    }
+
+    private String buildAssignReason(OperatorProfile advisor, String destination) {
+        if (matchAdvisor(advisor, destination)) {
+            return "按官网1分钟咨询意向地区[" + safe(destination) + "]匹配顾问[" + safe(advisor.getName()) + "]";
+        }
+        return "未找到明确地区匹配顾问，自动分配给启用顾问[" + safe(advisor.getName()) + "]，请后台确认";
+    }
+
+    private String buildOfficialWebsiteRemark(LeadDtos.OfficialWebsiteRequest r, String userAgent) {
+        StringBuilder remark = new StringBuilder();
+        appendLine(remark, "年龄", clean(r.age()));
+        appendLine(remark, "所在城市", clean(r.city()));
+        appendLine(remark, "学历", clean(r.education()));
+        appendLine(remark, "意向国家/地区", clean(r.destination()));
+        appendLine(remark, "预算", clean(r.budget()));
+        appendLine(remark, "官网备注", clean(r.remark()));
+        appendLine(remark, "浏览器", clean(userAgent));
+        return remark.toString();
+    }
+
+    private void appendLine(StringBuilder builder, String label, String value) {
+        if (value == null || value.isBlank()) return;
+        builder.append(label).append("：").append(value).append("\n");
+    }
+
+    private String clean(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String safe(String value) {
+        return value == null || value.isBlank() ? "未填写" : value.trim();
     }
 
     private String packageName(Long packageId) {
