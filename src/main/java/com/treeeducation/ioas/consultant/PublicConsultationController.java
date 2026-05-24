@@ -1,14 +1,15 @@
 package com.treeeducation.ioas.consultant;
 
-import com.treeeducation.ioas.common.ApiResponse;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
-import org.springframework.web.bind.annotation.*;
-
-@RestController
-@RequestMapping("/api/v1/public")
-@Tag(name = "Public Consultation", description = "官网公开咨询入口")
+/**
+ * Legacy public consultation controller kept only for source compatibility.
+ *
+ * The active public consultation API is provided by
+ * com.treeeducation.ioas.consultation.PublicConsultationController.
+ * Keeping this class as a Spring MVC controller would create duplicate bean names
+ * and duplicate request mappings for /api/v1/public/consultation-options and
+ * /api/v1/public/consultations.
+ */
+@Deprecated
 public class PublicConsultationController {
     private final PublicConsultationService service;
 
@@ -16,15 +17,11 @@ public class PublicConsultationController {
         this.service = service;
     }
 
-    @GetMapping("/consultation-options")
-    @Operation(summary = "获取官网咨询表单选项")
-    public ApiResponse<ConsultationDtos.OptionsResponse> options() {
-        return ApiResponse.ok(service.options());
+    public ConsultationDtos.OptionsResponse options() {
+        return service.options();
     }
 
-    @PostMapping("/consultations")
-    @Operation(summary = "提交官网一分钟咨询")
-    public ApiResponse<ConsultationDtos.CreateResponse> create(@Valid @RequestBody ConsultationDtos.CreateRequest request) {
-        return ApiResponse.ok(service.create(request));
+    public ConsultationDtos.CreateResponse create(ConsultationDtos.CreateRequest request) {
+        return service.create(request);
     }
 }
