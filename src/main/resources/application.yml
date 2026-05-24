@@ -21,6 +21,7 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    out-of-order: ${IOAS_FLYWAY_OUT_OF_ORDER:true}
   data:
     redis:
       host: ${IOAS_REDIS_HOST:localhost}
