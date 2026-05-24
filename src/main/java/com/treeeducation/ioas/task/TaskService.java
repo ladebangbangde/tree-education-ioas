@@ -10,6 +10,8 @@ import java.time.Instant;
 @Service
 public class TaskService {
     public static final String PACKAGE_UPLOAD_TASK_TYPE = "PACKAGE_MEDIA_UPLOAD";
+    private static final String OPERATOR_LEAD_TASK_TYPE = "OPERATOR_LEAD";
+    private static final String WEBSITE_LEAD_TASK_TYPE = "WEBSITE_LEAD";
 
     private final TaskRepository tasks;
     private final TaskLogService taskLogService;
@@ -77,7 +79,7 @@ public class TaskService {
     @Transactional
     public void createOperatorLeadTask(Long packageId, Long leadId, Long assigneeId, String assigneeName) {
         Task task = new Task();
-        task.setType(TaskType.operator_lead_generate.name());
+        task.setType(OPERATOR_LEAD_TASK_TYPE);
         task.setTitle("运营线索生成 - " + packageId);
         task.setTaskType(TaskType.operator_lead_generate);
         task.setRoleType(TaskRoleType.operator);
@@ -96,7 +98,7 @@ public class TaskService {
     public void createOfficialWebsiteLeadNotificationTask(Long leadId, String studentName, String targetCountry,
                                                           Long assigneeId, String assigneeName) {
         Task task = new Task();
-        task.setType(TaskType.operator_lead_generate.name());
+        task.setType(WEBSITE_LEAD_TASK_TYPE);
         task.setTitle("官网1分钟咨询新线索 - " + safe(studentName) + " / " + safe(targetCountry));
         task.setTaskType(TaskType.operator_lead_generate);
         task.setRoleType(TaskRoleType.operator);
