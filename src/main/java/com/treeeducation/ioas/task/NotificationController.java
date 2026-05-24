@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Map;
 
-@RestController
+@RestController("taskNotificationController")
 @RequestMapping("/api/v1/notifications")
 public class NotificationController {
     private static final List<String> ACTIVE_STATUSES = List.of("created", "queued", "uploading", "processing", "interrupted", "pending", "pending_supplement", "partial_success");
