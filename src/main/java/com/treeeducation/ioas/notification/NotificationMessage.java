@@ -6,25 +6,50 @@ import java.time.Instant;
 /** Generic in-app notification message for all IOAS modules and roles. */
 @Entity
 @Table(name = "notification_message", indexes = {
-        @Index(name = "idx_notification_receiver_read", columnList = "receiverUserId,readStatus"),
-        @Index(name = "idx_notification_receiver_created", columnList = "receiverUserId,createdAt"),
-        @Index(name = "idx_notification_biz", columnList = "bizType,bizId")
+        @Index(name = "idx_notification_receiver_read", columnList = "receiver_user_id,read_status"),
+        @Index(name = "idx_notification_receiver_created", columnList = "receiver_user_id,created_at"),
+        @Index(name = "idx_notification_biz", columnList = "biz_type,biz_id")
 })
 public class NotificationMessage {
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    @Column(nullable = false) private Long receiverUserId;
-    @Column(length = 40) private String receiverRole;
-    @Column(nullable = false, length = 160) private String title;
-    @Column(length = 1000) private String content;
-    @Column(nullable = false, length = 60) private String bizType;
+
+    @Column(name = "receiver_user_id", nullable = false)
+    private Long receiverUserId;
+
+    @Column(name = "receiver_role", length = 40)
+    private String receiverRole;
+
+    @Column(nullable = false, length = 160)
+    private String title;
+
+    @Column(length = 1000)
+    private String content;
+
+    @Column(name = "biz_type", nullable = false, length = 60)
+    private String bizType;
+
+    @Column(name = "biz_id")
     private Long bizId;
-    @Column(length = 300) private String actionUrl;
-    @Column(nullable = false, length = 30) private String notificationType = "INFO";
-    @Column(nullable = false) private Integer priority = 0;
-    @Column(nullable = false, length = 20) private String readStatus = "UNREAD";
+
+    @Column(name = "action_url", length = 300)
+    private String actionUrl;
+
+    @Column(name = "notification_type", nullable = false, length = 30)
+    private String notificationType = "INFO";
+
+    @Column(nullable = false)
+    private Integer priority = 0;
+
+    @Column(name = "read_status", nullable = false, length = 20)
+    private String readStatus = "UNREAD";
+
+    @Column(name = "read_at")
     private Instant readAt;
-    @Column(nullable = false, updatable = false) private Instant createdAt = Instant.now();
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt = Instant.now();
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
