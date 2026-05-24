@@ -22,7 +22,7 @@ public class ConsultantAssignmentService {
     }
 
     public List<ConsultantRegion> publicOptions() {
-        return scopes.publicAvailableRegions();
+        return regions.publicCoveredOptions();
     }
 
     @Transactional
