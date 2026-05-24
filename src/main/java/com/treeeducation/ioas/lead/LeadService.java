@@ -176,6 +176,13 @@ public class LeadService {
     public Lead update(Long id, LeadDtos.UpdateRequest r, UserPrincipal p) {
         Lead l = get(id);
         assertCanMutate(l, p);
+        if (r.studentName() != null) l.setStudentName(r.studentName());
+        if (r.phone() != null) l.setPhone(r.phone());
+        if (r.wechat() != null) l.setWechat(r.wechat());
+        if (r.targetCountry() != null) l.setTargetCountry(r.targetCountry());
+        if (r.targetMajor() != null) l.setTargetMajor(r.targetMajor());
+        if (r.budget() != null) l.setBudget(r.budget());
+        if (r.degreeLevel() != null) l.setDegreeLevel(r.degreeLevel());
         if (r.remark() != null) l.setRemark(r.remark());
         if (!"CONSULTANT".equalsIgnoreCase(p.role())) {
             if (r.assignedTo() != null) l.setAssignedTo(r.assignedTo());
