@@ -9,6 +9,18 @@ import java.time.Instant;
 public final class LeadDtos {
     private LeadDtos() {}
 
+    @Schema(description = "官网1分钟咨询表单提交请求")
+    public record OfficialWebsiteRequest(@NotBlank String name,
+                                         String age,
+                                         String education,
+                                         String city,
+                                         @NotBlank String phone,
+                                         String wechat,
+                                         @NotBlank String destination,
+                                         @NotBlank String budget,
+                                         String remark,
+                                         String source) {}
+
     @Schema(description = "创建线索请求")
     public record CreateRequest(@NotNull Long relatedPackageId, String sourceType, Long operatorId,
                                 @NotBlank String studentName, String phone, String wechat, String sourceChannel,
