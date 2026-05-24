@@ -121,7 +121,7 @@ public class LeadService {
                             + "。请尽快进入线索中心跟进。",
                     "lead",
                     lead.getId(),
-                    "/leads/" + lead.getId(),
+                    "/leads/detail/" + lead.getId(),
                     "LEAD_ASSIGNED",
                     10
             ));
