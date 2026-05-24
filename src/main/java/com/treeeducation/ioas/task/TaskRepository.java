@@ -10,6 +10,7 @@ import java.util.Optional;
 public interface TaskRepository extends JpaRepository<Task, Long> {
     List<Task> findByRoleType(TaskRoleType roleType);
     Optional<Task> findFirstByTaskTypeAndRelatedPackageId(TaskType taskType, Long relatedPackageId);
+    Optional<Task> findFirstByTaskTypeAndRelatedPackageIdAndType(TaskType taskType, Long relatedPackageId, String type);
     long countByRoleTypeAndStatus(TaskRoleType roleType, String status);
     long countByRoleTypeAndStatusIn(TaskRoleType roleType, Collection<String> statuses);
     long countByRoleTypeAndAssigneeIdAndStatusIn(TaskRoleType roleType, Long assigneeId, Collection<String> statuses);
