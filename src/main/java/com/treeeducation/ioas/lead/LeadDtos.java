@@ -31,7 +31,9 @@ public final class LeadDtos {
     public record StatusRequest(@NotNull LeadStatus status) {}
 
     @Schema(description = "更新线索请求")
-    public record UpdateRequest(String remark, Long assignedTo, String assignedToName, LeadStatus status) {}
+    public record UpdateRequest(String studentName, String phone, String wechat, String targetCountry,
+                                String targetMajor, String budget, String degreeLevel, String remark,
+                                Long assignedTo, String assignedToName, LeadStatus status) {}
 
     @Schema(description = "线索响应")
     public record Response(Long id, String sourceType, Long relatedPackageId, Long operatorId, String leadNo,
