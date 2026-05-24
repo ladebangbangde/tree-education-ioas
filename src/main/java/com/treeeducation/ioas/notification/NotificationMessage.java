@@ -3,8 +3,13 @@ package com.treeeducation.ioas.notification;
 import jakarta.persistence.*;
 import java.time.Instant;
 
+/** Generic in-app notification message for all IOAS modules and roles. */
 @Entity
-@Table(name = "notification_message")
+@Table(name = "notification_message", indexes = {
+        @Index(name = "idx_notification_receiver_read", columnList = "receiverUserId,readStatus"),
+        @Index(name = "idx_notification_receiver_created", columnList = "receiverUserId,createdAt"),
+        @Index(name = "idx_notification_biz", columnList = "bizType,bizId")
+})
 public class NotificationMessage {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -14,6 +19,7 @@ public class NotificationMessage {
     @Column(length = 1000) private String content;
     @Column(nullable = false, length = 60) private String bizType;
     private Long bizId;
+    @Column(length = 300) private String actionUrl;
     @Column(nullable = false, length = 30) private String notificationType = "INFO";
     @Column(nullable = false) private Integer priority = 0;
     @Column(nullable = false, length = 20) private String readStatus = "UNREAD";
@@ -34,6 +40,8 @@ public class NotificationMessage {
     public void setBizType(String bizType) { this.bizType = bizType; }
     public Long getBizId() { return bizId; }
     public void setBizId(Long bizId) { this.bizId = bizId; }
+    public String getActionUrl() { return actionUrl; }
+    public void setActionUrl(String actionUrl) { this.actionUrl = actionUrl; }
     public String getNotificationType() { return notificationType; }
     public void setNotificationType(String notificationType) { this.notificationType = notificationType; }
     public Integer getPriority() { return priority; }
