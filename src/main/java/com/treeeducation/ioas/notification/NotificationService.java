@@ -46,6 +46,12 @@ public class NotificationService {
         return repository.save(message);
     }
 
+    @Transactional
+    public NotificationMessage create(Long receiverUserId, String receiverRole, String title, String content,
+                                      String bizType, Long bizId, String notificationType, Integer priority) {
+        return sendToUser(receiverUserId, receiverRole, title, content, bizType, bizId, null, notificationType, priority);
+    }
+
     public PageResponse<NotificationDtos.Response> listMine(Long receiverUserId, String readStatus, int pageNum, int pageSize) {
         List<NotificationMessage> rows;
         if (readStatus == null || readStatus.isBlank()) {
