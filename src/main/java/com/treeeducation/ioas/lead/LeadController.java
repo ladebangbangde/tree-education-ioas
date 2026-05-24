@@ -10,6 +10,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 /** Lead APIs. */
 @RestController
 @RequestMapping("/api/v1/leads")
@@ -61,5 +63,12 @@ public class LeadController {
                                                  @AuthenticationPrincipal UserPrincipal p) {
         Lead lead = service.update(id, r, p);
         return ApiResponse.ok(service.detailForUser(lead.getId(), p));
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "删除线索")
+    public ApiResponse<Map<String, Object>> delete(@PathVariable Long id, @AuthenticationPrincipal UserPrincipal p) {
+        service.delete(id, p);
+        return ApiResponse.ok(Map.of("deleted", true, "id", id));
     }
 }
