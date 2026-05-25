@@ -8,6 +8,7 @@ import com.treeeducation.ioas.media.contentpackage.ContentPackageRepository;
 import com.treeeducation.ioas.media.contentpackage.ContentPackageService;
 import com.treeeducation.ioas.storage.ObjectStorageService;
 import com.treeeducation.ioas.storage.StoredObject;
+import com.treeeducation.ioas.task.TaskService;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -28,26 +29,36 @@ public class AssetFileService {
     private final ContentPackageService packageService;
     private final ObjectStorageService storage;
     private final AuditLogRepository audits;
+    private final TaskService tasks;
 
     public AssetFileService(AssetFileRepository repo, ContentPackageRepository packages, ContentPackageService packageService,
-                            ObjectStorageService storage, AuditLogRepository audits) {
+                            ObjectStorageService storage, AuditLogRepository audits, TaskService tasks) {
         this.repo = repo;
         this.packages = packages;
         this.packageService = packageService;
         this.storage = storage;
         this.audits = audits;
+        this.tasks = tasks;
     }
 
     @Transactional
     public AssetFileDtos.UploadSummary uploadGrouped(Long packageId, List<MultipartFile> scripts, List<MultipartFile> videos,
                                                      List<MultipartFile> images, UserPrincipal p) {
-        List<AssetFileDtos.Response> scriptResults = uploadMany(packageId, AssetFileType.script, scripts, p);
-        List<AssetFileDtos.Response> videoResults = uploadMany(packageId, AssetFileType.video, videos, p);
-        List<AssetFileDtos.Response> imageResults = uploadMany(packageId, AssetFileType.image, images, p);
-        packageService.refreshCountsAndStatus(packageId);
         ContentPackage cp = packages.findById(packageId).orElseThrow(() -> BusinessException.notFound("主题包不存在"));
-        return new AssetFileDtos.UploadSummary(scriptResults, videoResults, imageResults,
-                cp.getScriptCount(), cp.getVideoCount(), cp.getImageCount(), UploadStatus.success);
+        packageService.assertCanManagePackage(cp, p);
+        tasks.ensureMediaUploadTask(cp);
+        try {
+            List<AssetFileDtos.Response> scriptResults = uploadMany(packageId, AssetFileType.script, scripts, p);
+            List<AssetFileDtos.Response> videoResults = uploadMany(packageId, AssetFileType.video, videos, p);
+            List<AssetFileDtos.Response> imageResults = uploadMany(packageId, AssetFileType.image, images, p);
+            packageService.refreshCountsAndStatus(packageId);
+            ContentPackage refreshed = packages.findById(packageId).orElseThrow(() -> BusinessException.notFound("主题包不存在"));
+            return new AssetFileDtos.UploadSummary(scriptResults, videoResults, imageResults,
+                    refreshed.getScriptCount(), refreshed.getVideoCount(), refreshed.getImageCount(), UploadStatus.success);
+        } catch (RuntimeException ex) {
+            tasks.markMediaUploadFailed(cp, ex.getMessage());
+            throw ex;
+        }
     }
 
     @Transactional
