@@ -6,5 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 public enum TaskType {
     package_create,
     media_upload,
-    operator_lead_generate
+    operator_lead_generate,
+    consultant_qr_upload,
+    consultant_region_change
 }
