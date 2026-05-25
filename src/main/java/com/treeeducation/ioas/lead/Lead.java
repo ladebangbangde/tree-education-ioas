@@ -33,6 +33,9 @@ public class Lead {
     @Column(nullable = false, length = 30) private LeadStatus status = LeadStatus.unassigned;
     private Long assignedTo;
     @Column(length = 80) private String assignedToName;
+    private Long convertedStudentId;
+    private Instant convertedAt;
+    private Long convertedBy;
     @Column(length = 1000) private String remark;
     @Column(nullable = false, updatable = false) private Instant createdAt = Instant.now();
     private Instant updatedAt = Instant.now();
@@ -85,6 +88,12 @@ public class Lead {
     public void setAssignedTo(Long assignedTo) { this.assignedTo = assignedTo; }
     public String getAssignedToName() { return assignedToName; }
     public void setAssignedToName(String assignedToName) { this.assignedToName = assignedToName; }
+    public Long getConvertedStudentId() { return convertedStudentId; }
+    public void setConvertedStudentId(Long convertedStudentId) { this.convertedStudentId = convertedStudentId; }
+    public Instant getConvertedAt() { return convertedAt; }
+    public void setConvertedAt(Instant convertedAt) { this.convertedAt = convertedAt; }
+    public Long getConvertedBy() { return convertedBy; }
+    public void setConvertedBy(Long convertedBy) { this.convertedBy = convertedBy; }
     public String getRemark() { return remark; }
     public void setRemark(String remark) { this.remark = remark; }
     public Instant getCreatedAt() { return createdAt; }
