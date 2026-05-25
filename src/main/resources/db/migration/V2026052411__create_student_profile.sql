@@ -1,0 +1,35 @@
+CREATE TABLE IF NOT EXISTS student_profile (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    student_no VARCHAR(40) NOT NULL UNIQUE,
+    source_lead_id BIGINT NOT NULL,
+    source_lead_no VARCHAR(40) NULL,
+    owner_consultant_id BIGINT NOT NULL,
+    owner_consultant_name VARCHAR(80) NOT NULL,
+    student_name VARCHAR(120) NOT NULL,
+    phone VARCHAR(40) NULL,
+    wechat VARCHAR(80) NULL,
+    age VARCHAR(20) NULL,
+    education_level VARCHAR(80) NULL,
+    province VARCHAR(80) NULL,
+    city VARCHAR(80) NULL,
+    location_text VARCHAR(160) NULL,
+    intention_region_id BIGINT NULL,
+    intention_region_code VARCHAR(40) NULL,
+    intention_region_name VARCHAR(80) NULL,
+    target_country VARCHAR(80) NULL,
+    target_major VARCHAR(120) NULL,
+    budget VARCHAR(80) NULL,
+    profile_status VARCHAR(40) NOT NULL DEFAULT 'ACTIVE',
+    remark VARCHAR(1000) NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_student_source_lead (source_lead_id),
+    KEY idx_student_owner_status (owner_consultant_id, profile_status),
+    KEY idx_student_region_status (intention_region_code, profile_status),
+    KEY idx_student_created_at (created_at)
+);
+
+ALTER TABLE lead_record
+    ADD COLUMN converted_student_id BIGINT NULL,
+    ADD COLUMN converted_at TIMESTAMP NULL,
+    ADD COLUMN converted_by BIGINT NULL;
