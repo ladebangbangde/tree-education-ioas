@@ -4,6 +4,7 @@ import com.treeeducation.ioas.media.contentpackage.ContentPackage;
 import com.treeeducation.ioas.notification.NotificationDtos;
 import com.treeeducation.ioas.notification.NotificationService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -42,10 +43,10 @@ public class TaskService {
         task.setUpdatedAt(Instant.now());
         Task saved = tasks.save(task);
         taskLogService.info(saved.getId(), "package created successfully, packageId=" + p.getId() + ", topicName=" + p.getTopicName());
-        notifyTask(saved, "主题创建完成", "主题《" + safe(p.getTopicName()) + "》已创建完成。", "PACKAGE_CREATE_SUCCESS", "SUCCESS", 20);
+        notifyTask(saved, "主题创建完成", "主题《" + safe(p.getTopicName()) + "》已创建完成。", "PACKAGE_CREATE_SUCCESS", 20);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void createPackageCreateFailedTask(String topicName, Long assigneeId, String assigneeName, String errorMessage) {
         Task task = new Task();
         task.setType(PACKAGE_CREATE_TASK_TYPE);
@@ -60,8 +61,8 @@ public class TaskService {
         task.setCompletedAt(Instant.now());
         task.setUpdatedAt(Instant.now());
         Task saved = tasks.save(task);
-        taskLogService.error(saved.getId(), "package creation failed, topicName=" + safe(topicName) + ", message=" + safe(errorMessage));
-        notifyTask(saved, "主题创建失败", "主题《" + safe(topicName) + "》创建失败：" + safe(errorMessage), "PACKAGE_CREATE_FAILED", "ERROR", 30);
+        taskLogService.error(saved.getId(), "package creation failed, topicName=" + safe(topicName) + ", message=" + safe(errorMessage), null);
+        notifyTask(saved, "主题创建失败", "主题《" + safe(topicName) + "》创建失败：" + safe(errorMessage), "PACKAGE_CREATE_FAILED", 30);
     }
 
     @Transactional
@@ -102,11 +103,11 @@ public class TaskService {
         Task saved = tasks.save(task);
         taskLogService.info(saved.getId(), "package media upload task refreshed, status=" + task.getStatus() + ", progress=" + task.getProgress() + "%");
         if (!MediaTaskStatus.success.name().equals(oldStatus) && MediaTaskStatus.success.name().equals(saved.getStatus())) {
-            notifyTask(saved, "主题素材上传完成", "主题《" + safe(p.getTopicName()) + "》素材已上传完成。", "PACKAGE_UPLOAD_SUCCESS", "SUCCESS", 20);
+            notifyTask(saved, "主题素材上传完成", "主题《" + safe(p.getTopicName()) + "》素材已上传完成。", "PACKAGE_UPLOAD_SUCCESS", 20);
         }
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markMediaUploadFailed(ContentPackage p, String errorMessage) {
         Task task = tasks.findFirstByTaskTypeAndRelatedPackageIdAndType(TaskType.media_upload, p.getId(), PACKAGE_UPLOAD_TASK_TYPE).orElseGet(Task::new);
         task.setType(PACKAGE_UPLOAD_TASK_TYPE);
@@ -122,8 +123,8 @@ public class TaskService {
         task.setCompletedAt(Instant.now());
         task.setUpdatedAt(Instant.now());
         Task saved = tasks.save(task);
-        taskLogService.error(saved.getId(), "package media upload failed, packageId=" + p.getId() + ", message=" + safe(errorMessage));
-        notifyTask(saved, "主题素材上传失败", "主题《" + safe(p.getTopicName()) + "》素材上传失败：" + safe(errorMessage), "PACKAGE_UPLOAD_FAILED", "ERROR", 30);
+        taskLogService.error(saved.getId(), "package media upload failed, packageId=" + p.getId() + ", message=" + safe(errorMessage), null);
+        notifyTask(saved, "主题素材上传失败", "主题《" + safe(p.getTopicName()) + "》素材上传失败：" + safe(errorMessage), "PACKAGE_UPLOAD_FAILED", 30);
     }
 
     @Transactional
@@ -162,7 +163,7 @@ public class TaskService {
         taskLogService.info(saved.getId(), "official website lead notification created, leadId=" + leadId + ", studentName=" + safe(studentName) + ", targetCountry=" + safe(targetCountry) + ", assigneeName=" + safe(assigneeName));
     }
 
-    private void notifyTask(Task task, String title, String content, String notificationType, String level, Integer priority) {
+    private void notifyTask(Task task, String title, String content, String notificationType, Integer priority) {
         if (task.getAssigneeId() == null) return;
         try {
             notifications.sendToUser(new NotificationDtos.SendRequest(
@@ -173,7 +174,7 @@ public class TaskService {
                     "task",
                     task.getId(),
                     "/tasks",
-                    notificationType == null ? level : notificationType,
+                    notificationType,
                     priority
             ));
         } catch (RuntimeException ex) {
