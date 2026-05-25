@@ -16,7 +16,9 @@ public final class LeadDtos {
                                          String city,
                                          @NotBlank String phone,
                                          String wechat,
-                                         @NotBlank String destination,
+                                         String destination,
+                                         String intentionRegionCode,
+                                         String intentionRegionName,
                                          @NotBlank String budget,
                                          String remark,
                                          String source) {}
