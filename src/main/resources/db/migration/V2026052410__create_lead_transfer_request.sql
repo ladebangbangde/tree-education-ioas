@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS lead_transfer_request (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    lead_id BIGINT NOT NULL,
+    lead_no VARCHAR(40) NULL,
+    student_name VARCHAR(120) NULL,
+    from_consultant_id BIGINT NOT NULL,
+    from_consultant_name VARCHAR(80) NOT NULL,
+    to_consultant_id BIGINT NOT NULL,
+    to_consultant_name VARCHAR(80) NOT NULL,
+    reason VARCHAR(1000) NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    requested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    responded_at TIMESTAMP NULL,
+    response_remark VARCHAR(1000) NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_transfer_to_status (to_consultant_id, status, requested_at),
+    KEY idx_transfer_from_status (from_consultant_id, status, requested_at),
+    KEY idx_transfer_lead_status (lead_id, status)
+);
