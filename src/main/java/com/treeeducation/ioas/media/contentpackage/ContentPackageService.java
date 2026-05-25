@@ -58,7 +58,6 @@ public class ContentPackageService {
         cp.setCreatedByName(p.userName());
         cp = repo.save(cp);
         tasks.createPackageCreatedTask(cp);
-        tasks.ensureMediaUploadTask(cp);
         audit(AuditAction.create_package, "content_package", cp.getId(), p.id(), cp.getTopicName());
         return cp;
     }
