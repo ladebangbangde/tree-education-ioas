@@ -7,6 +7,7 @@ import com.treeeducation.ioas.media.contentpackage.ContentPackage;
 import com.treeeducation.ioas.media.contentpackage.ContentPackageRepository;
 import com.treeeducation.ioas.notification.NotificationDtos;
 import com.treeeducation.ioas.notification.NotificationService;
+import com.treeeducation.ioas.profile.ProfileDtos;
 import com.treeeducation.ioas.system.operatorprofile.OperatorProfile;
 import com.treeeducation.ioas.system.operatorprofile.OperatorProfileRepository;
 import com.treeeducation.ioas.system.region.ConsultantRegionAssignment;
@@ -157,7 +158,7 @@ public class LeadService {
                 .filter(l -> !"assigned".equals(tab) || l.getStatus() == LeadStatus.assigned || l.getStatus() == LeadStatus.following)
                 .filter(l -> !"mine".equals(tab) || p.id().equals(l.getAssignedTo()) || p.id().equals(l.getOperatorId()))
                 .sorted(Comparator.comparing(Lead::getCreatedAt).reversed())
-                .map(l -> LeadDtos.of(l, packageName(l.getRelatedPackageId())))
+                .map(l -> LeadDtos.of(l, packageName(l.getRelatedPackageId()), consultantInfo(l)))
                 .toList();
     }
 
@@ -167,13 +168,13 @@ public class LeadService {
 
     public LeadDtos.Response detail(Long id) {
         Lead l = get(id);
-        return LeadDtos.of(l, packageName(l.getRelatedPackageId()));
+        return LeadDtos.of(l, packageName(l.getRelatedPackageId()), consultantInfo(l));
     }
 
     public LeadDtos.Response detailForUser(Long id, UserPrincipal p) {
         Lead l = get(id);
         assertCanRead(l, p);
-        return LeadDtos.of(l, packageName(l.getRelatedPackageId()));
+        return LeadDtos.of(l, packageName(l.getRelatedPackageId()), consultantInfo(l));
     }
 
     @Transactional
@@ -214,6 +215,13 @@ public class LeadService {
         assertCanMutate(lead, p);
         repo.delete(lead);
         audit(AuditAction.update_lead, "lead", id, p.id(), "delete:" + safe(lead.getLeadNo()));
+    }
+
+    private ProfileDtos.PublicConsultantResponse consultantInfo(Lead lead) {
+        if (lead == null || lead.getAssignedTo() == null) return null;
+        return operators.findByUserId(lead.getAssignedTo())
+                .map(profile -> ProfileDtos.PublicConsultantResponse.of(profile, lead.getIntentionRegionCode(), lead.getIntentionRegionName()))
+                .orElse(null);
     }
 
     private void assertCanRead(Lead lead, UserPrincipal p) {
