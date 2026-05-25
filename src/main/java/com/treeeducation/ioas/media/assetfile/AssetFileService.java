@@ -45,7 +45,7 @@ public class AssetFileService {
     public AssetFileDtos.UploadSummary uploadGrouped(Long packageId, List<MultipartFile> scripts, List<MultipartFile> videos,
                                                      List<MultipartFile> images, UserPrincipal p) {
         ContentPackage cp = packages.findById(packageId).orElseThrow(() -> BusinessException.notFound("主题包不存在"));
-        packageService.assertCanManagePackage(cp, p);
+        packageService.assertCanUploadPackage(cp, p);
         tasks.ensureMediaUploadTask(cp);
         try {
             List<AssetFileDtos.Response> scriptResults = uploadMany(packageId, AssetFileType.script, scripts, p);
@@ -64,7 +64,7 @@ public class AssetFileService {
     @Transactional
     public AssetFile uploadOne(Long packageId, AssetFileType type, MultipartFile file, UserPrincipal p) {
         ContentPackage cp = packages.findById(packageId).orElseThrow(() -> BusinessException.notFound("主题包不存在"));
-        packageService.assertCanManagePackage(cp, p);
+        packageService.assertCanUploadPackage(cp, p);
         if (Boolean.TRUE.equals(cp.getIsDeleted())) {
             throw BusinessException.badRequest("主题包已删除，不能上传文件");
         }
