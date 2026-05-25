@@ -45,7 +45,7 @@ public class ContentPackageController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','MEDIA')")
-    @Operation(summary = "新建主题包；仅创建包，不上传文件")
+    @Operation(summary = "新建主题包；仅媒体或超管可创建")
     public ApiResponse<ContentPackageDtos.Response> create(@Valid @RequestBody ContentPackageDtos.UpsertRequest r,
                                                            @AuthenticationPrincipal UserPrincipal p) {
         try {
@@ -65,7 +65,7 @@ public class ContentPackageController {
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','MEDIA')")
-    @Operation(summary = "编辑主题包运营人员与主题名称")
+    @Operation(summary = "编辑主题包运营人员与主题名称；仅媒体创建者或超管可编辑")
     public ApiResponse<ContentPackageDtos.Response> update(@PathVariable Long id, @Valid @RequestBody ContentPackageDtos.UpsertRequest r,
                                                             @AuthenticationPrincipal UserPrincipal p) {
         return ApiResponse.ok(ContentPackageDtos.of(service.update(id, r, p)));
@@ -73,15 +73,15 @@ public class ContentPackageController {
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','MEDIA')")
-    @Operation(summary = "逻辑删除主题包，并将其下文件移入回收站")
+    @Operation(summary = "逻辑删除主题包，并将其下文件移入回收站；仅媒体创建者或超管可删除")
     public ApiResponse<Void> delete(@PathVariable Long id, @AuthenticationPrincipal UserPrincipal p) {
         service.delete(id, p);
         return ApiResponse.ok();
     }
 
     @PostMapping("/{id}/files")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','MEDIA')")
-    @Operation(summary = "按 scripts/videos/images 分组批量上传素材")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','MEDIA','OPERATOR')")
+    @Operation(summary = "按 scripts/videos/images 分组批量上传素材；媒体创建者、绑定运营或超管可上传")
     public ApiResponse<AssetFileDtos.UploadSummary> uploadFiles(@PathVariable Long id,
                                                                 @RequestPart(required = false) List<MultipartFile> scripts,
                                                                 @RequestPart(required = false) List<MultipartFile> videos,
