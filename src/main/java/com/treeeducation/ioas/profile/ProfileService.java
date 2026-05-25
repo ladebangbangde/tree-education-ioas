@@ -1,0 +1,199 @@
+package com.treeeducation.ioas.profile;
+
+import com.treeeducation.ioas.auth.UserPrincipal;
+import com.treeeducation.ioas.common.BusinessException;
+import com.treeeducation.ioas.notification.NotificationDtos;
+import com.treeeducation.ioas.notification.NotificationService;
+import com.treeeducation.ioas.storage.ObjectStorageService;
+import com.treeeducation.ioas.storage.StoredObject;
+import com.treeeducation.ioas.system.operatorprofile.OperatorProfile;
+import com.treeeducation.ioas.system.operatorprofile.OperatorProfileRepository;
+import com.treeeducation.ioas.system.region.ConsultantRegionAssignment;
+import com.treeeducation.ioas.system.region.ConsultantRegionAssignmentRepository;
+import com.treeeducation.ioas.system.user.User;
+import com.treeeducation.ioas.system.user.UserRepository;
+import com.treeeducation.ioas.task.MediaTaskStatus;
+import com.treeeducation.ioas.task.Task;
+import com.treeeducation.ioas.task.TaskRepository;
+import com.treeeducation.ioas.task.TaskRoleType;
+import com.treeeducation.ioas.task.TaskType;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+public class ProfileService {
+    private final UserRepository users;
+    private final OperatorProfileRepository profiles;
+    private final ConsultantRegionAssignmentRepository assignments;
+    private final ConsultantRegionChangeRequestRepository changeRequests;
+    private final ObjectStorageService storage;
+    private final TaskRepository tasks;
+    private final NotificationService notifications;
+
+    public ProfileService(UserRepository users, OperatorProfileRepository profiles,
+                          ConsultantRegionAssignmentRepository assignments,
+                          ConsultantRegionChangeRequestRepository changeRequests,
+                          ObjectStorageService storage, TaskRepository tasks,
+                          NotificationService notifications) {
+        this.users = users;
+        this.profiles = profiles;
+        this.assignments = assignments;
+        this.changeRequests = changeRequests;
+        this.storage = storage;
+        this.tasks = tasks;
+        this.notifications = notifications;
+    }
+
+    public ProfileDtos.MeResponse me(UserPrincipal principal) {
+        User user = currentUser(principal);
+        OperatorProfile profile = profiles.findByUserId(user.getId()).orElse(null);
+        return ProfileDtos.MeResponse.of(user, profile);
+    }
+
+    @Transactional
+    public ProfileDtos.QrUploadResponse uploadConsultantQr(MultipartFile file, UserPrincipal principal) {
+        User user = currentUser(principal);
+        if (!"CONSULTANT".equalsIgnoreCase(user.getRoleCode())) {
+            throw BusinessException.forbidden("只有顾问账号可以上传自己的企业微信二维码");
+        }
+        OperatorProfile profile = profiles.findByUserId(user.getId()).orElseThrow(() -> BusinessException.notFound("顾问档案不存在"));
+        if (file == null || file.isEmpty()) {
+            throw BusinessException.badRequest("二维码图片不能为空");
+        }
+        String contentType = file.getContentType() == null ? "" : file.getContentType().toLowerCase();
+        if (!contentType.startsWith("image/")) {
+            throw BusinessException.badRequest("请上传图片格式的企业微信二维码");
+        }
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        String prefix = "consultant/" + today.getYear() + "/" + String.format("%02d", today.getMonthValue()) + "/" + String.format("%02d", today.getDayOfMonth()) + "/" + safe(profile.getName());
+        StoredObject object = storage.put(prefix, file);
+
+        profile.setConsultantQrBucketName(object.bucketName());
+        profile.setConsultantQrObjectKey(object.objectKey());
+        profile.setConsultantQrPublicUrl(object.previewUrl());
+
+        Task task = new Task();
+        task.setType("CONSULTANT_QR_UPLOAD");
+        task.setTitle("企业微信二维码上传完成 - " + profile.getName());
+        task.setTaskType(TaskType.consultant_qr_upload);
+        task.setRoleType(TaskRoleType.media);
+        task.setAssigneeId(user.getId());
+        task.setAssigneeName(profile.getName());
+        task.setStatus(MediaTaskStatus.success.name());
+        task.setProgress(100);
+        task.setUploadBucketName(object.bucketName());
+        task.setUploadObjectKey(object.objectKey());
+        task.setUploadPublicUrl(object.previewUrl());
+        task.setFileName(file.getOriginalFilename());
+        task.setFileSize(file.getSize());
+        task.setUploadedBytes(file.getSize());
+        task.setCompletedAt(Instant.now());
+        task.setUpdatedAt(Instant.now());
+        Task saved = tasks.save(task);
+
+        notifications.sendToUser(new NotificationDtos.SendRequest(user.getId(), "CONSULTANT", "企业微信二维码上传完成",
+                "你的企业微信二维码已上传成功，官网咨询提交后会展示给分配到你的学生。",
+                "profile", saved.getId(), "/profile/settings", "CONSULTANT_QR_UPLOAD_SUCCESS", 20));
+
+        return new ProfileDtos.QrUploadResponse(object.bucketName(), object.objectKey(), object.previewUrl(), saved.getId());
+    }
+
+    @Transactional
+    public ProfileDtos.RegionChangeResponse requestRegionChange(ProfileDtos.RegionChangeRequest request, UserPrincipal principal) {
+        User user = currentUser(principal);
+        if (!"CONSULTANT".equalsIgnoreCase(user.getRoleCode())) {
+            throw BusinessException.forbidden("只有顾问账号可以提交擅长地区变更申请");
+        }
+        OperatorProfile profile = profiles.findByUserId(user.getId()).orElseThrow(() -> BusinessException.notFound("顾问档案不存在"));
+        if (request == null || blank(request.requestedRegionCodes()) || blank(request.requestedRegionNames())) {
+            throw BusinessException.badRequest("请选择要申请的擅长地区");
+        }
+        ConsultantRegionChangeRequest row = new ConsultantRegionChangeRequest();
+        row.setConsultantUserId(user.getId());
+        row.setConsultantProfileId(profile.getId());
+        row.setConsultantName(profile.getName());
+        row.setCurrentRegionCodes(profile.getSpecialityRegionCodes());
+        row.setCurrentRegionNames(profile.getSpecialityRegionNames());
+        row.setRequestedRegionCodes(request.requestedRegionCodes());
+        row.setRequestedRegionNames(request.requestedRegionNames());
+        row.setReason(request.reason());
+        row = changeRequests.save(row);
+
+        Task task = new Task();
+        task.setType("CONSULTANT_REGION_CHANGE");
+        task.setTitle("顾问擅长地区变更待审批 - " + profile.getName());
+        task.setTaskType(TaskType.consultant_region_change);
+        task.setRoleType(TaskRoleType.media);
+        task.setAssigneeId(user.getId());
+        task.setAssigneeName(profile.getName());
+        task.setStatus("PENDING");
+        task.setProgress(0);
+        task.setUpdatedAt(Instant.now());
+        tasks.save(task);
+        return ProfileDtos.RegionChangeResponse.of(row);
+    }
+
+    public List<ProfileDtos.RegionChangeResponse> myRegionChangeRequests(UserPrincipal principal) {
+        User user = currentUser(principal);
+        return changeRequests.findByConsultantUserIdOrderByRequestedAtDesc(user.getId()).stream().map(ProfileDtos.RegionChangeResponse::of).toList();
+    }
+
+    public List<ProfileDtos.RegionChangeResponse> pendingRegionChangeRequests() {
+        return changeRequests.findByStatusOrderByRequestedAtDesc(ConsultantRegionChangeStatus.PENDING).stream().map(ProfileDtos.RegionChangeResponse::of).toList();
+    }
+
+    @Transactional
+    public ProfileDtos.RegionChangeResponse approveRegionChange(Long id, ProfileDtos.ReviewRequest request, UserPrincipal principal) {
+        User reviewer = currentUser(principal);
+        ConsultantRegionChangeRequest row = changeRequests.findById(id).orElseThrow(() -> BusinessException.notFound("申请不存在"));
+        OperatorProfile profile = profiles.findById(row.getConsultantProfileId()).orElseThrow(() -> BusinessException.notFound("顾问档案不存在"));
+        row.setStatus(ConsultantRegionChangeStatus.APPROVED);
+        row.setReviewerUserId(reviewer.getId());
+        row.setReviewerName(reviewer.getDisplayName());
+        row.setReviewRemark(request == null ? null : request.remark());
+        row.setReviewedAt(Instant.now());
+        row.setUpdatedAt(Instant.now());
+        profile.setSpecialityRegionCodes(row.getRequestedRegionCodes());
+        profile.setSpecialityRegionNames(row.getRequestedRegionNames());
+        return ProfileDtos.RegionChangeResponse.of(row);
+    }
+
+    @Transactional
+    public ProfileDtos.RegionChangeResponse rejectRegionChange(Long id, ProfileDtos.ReviewRequest request, UserPrincipal principal) {
+        User reviewer = currentUser(principal);
+        ConsultantRegionChangeRequest row = changeRequests.findById(id).orElseThrow(() -> BusinessException.notFound("申请不存在"));
+        row.setStatus(ConsultantRegionChangeStatus.REJECTED);
+        row.setReviewerUserId(reviewer.getId());
+        row.setReviewerName(reviewer.getDisplayName());
+        row.setReviewRemark(request == null ? null : request.remark());
+        row.setReviewedAt(Instant.now());
+        row.setUpdatedAt(Instant.now());
+        return ProfileDtos.RegionChangeResponse.of(row);
+    }
+
+    public ProfileDtos.PublicConsultantResponse publicConsultantByUserId(Long userId, String regionCode, String regionName) {
+        OperatorProfile profile = profiles.findByUserId(userId).orElse(null);
+        return profile == null ? null : ProfileDtos.PublicConsultantResponse.of(profile, regionCode, regionName);
+    }
+
+    private User currentUser(UserPrincipal principal) {
+        if (principal == null || principal.id() == null) throw BusinessException.forbidden("请先登录");
+        return users.findById(principal.id()).orElseThrow(() -> BusinessException.forbidden("登录用户不存在"));
+    }
+
+    private boolean blank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private String safe(String value) {
+        return value == null || value.isBlank() ? "unknown" : value.trim().replaceAll("[^a-zA-Z0-9_\\-\\u4e00-\\u9fa5]", "_");
+    }
+}
