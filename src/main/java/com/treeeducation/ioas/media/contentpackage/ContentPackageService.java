@@ -154,9 +154,23 @@ public class ContentPackageService {
         return false;
     }
 
+    public boolean canUploadPackage(ContentPackage p, UserPrincipal principal) {
+        if (p == null || principal == null) return false;
+        if (isSuperAdmin(principal)) return true;
+        if (isMedia(principal)) return p.getCreatedBy() != null && p.getCreatedBy().equals(principal.id());
+        if (isOperator(principal)) return p.getOperatorId() != null && p.getOperatorId().equals(principal.id());
+        return false;
+    }
+
     public void assertCanViewPackage(ContentPackage p, UserPrincipal principal) {
         if (!canViewPackage(p, principal)) {
             throw BusinessException.forbidden("只能查看与自己绑定的主题包内容");
+        }
+    }
+
+    public void assertCanUploadPackage(ContentPackage p, UserPrincipal principal) {
+        if (!canUploadPackage(p, principal)) {
+            throw BusinessException.forbidden("只能上传自己创建或分配给自己的主题包素材");
         }
     }
 
