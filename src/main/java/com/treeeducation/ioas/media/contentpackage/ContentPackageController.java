@@ -5,6 +5,7 @@ import com.treeeducation.ioas.common.ApiResponse;
 import com.treeeducation.ioas.common.PageResponse;
 import com.treeeducation.ioas.media.assetfile.AssetFileDtos;
 import com.treeeducation.ioas.media.assetfile.AssetFileService;
+import com.treeeducation.ioas.task.TaskService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -22,10 +23,12 @@ import java.util.List;
 public class ContentPackageController {
     private final ContentPackageService service;
     private final AssetFileService assetFileService;
+    private final TaskService taskService;
 
-    public ContentPackageController(ContentPackageService service, AssetFileService assetFileService) {
+    public ContentPackageController(ContentPackageService service, AssetFileService assetFileService, TaskService taskService) {
         this.service = service;
         this.assetFileService = assetFileService;
+        this.taskService = taskService;
     }
 
     @GetMapping
@@ -45,7 +48,12 @@ public class ContentPackageController {
     @Operation(summary = "新建主题包；仅创建包，不上传文件")
     public ApiResponse<ContentPackageDtos.Response> create(@Valid @RequestBody ContentPackageDtos.UpsertRequest r,
                                                            @AuthenticationPrincipal UserPrincipal p) {
-        return ApiResponse.ok(ContentPackageDtos.of(service.create(r, p)));
+        try {
+            return ApiResponse.ok(ContentPackageDtos.of(service.create(r, p)));
+        } catch (RuntimeException ex) {
+            taskService.createPackageCreateFailedTask(r == null ? null : r.topicName(), p == null ? null : p.id(), p == null ? null : p.userName(), ex.getMessage());
+            throw ex;
+        }
     }
 
     @GetMapping("/{id}")
