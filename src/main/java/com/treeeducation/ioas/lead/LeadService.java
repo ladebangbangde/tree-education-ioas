@@ -9,6 +9,8 @@ import com.treeeducation.ioas.notification.NotificationDtos;
 import com.treeeducation.ioas.notification.NotificationService;
 import com.treeeducation.ioas.system.operatorprofile.OperatorProfile;
 import com.treeeducation.ioas.system.operatorprofile.OperatorProfileRepository;
+import com.treeeducation.ioas.system.region.ConsultantRegionAssignment;
+import com.treeeducation.ioas.system.region.ConsultantRegionAssignmentRepository;
 import com.treeeducation.ioas.system.user.UserRepository;
 import com.treeeducation.ioas.task.TaskService;
 import org.springframework.stereotype.Service;
@@ -26,16 +28,19 @@ public class LeadService {
     private final LeadRepository repo;
     private final ContentPackageRepository packages;
     private final OperatorProfileRepository operators;
+    private final ConsultantRegionAssignmentRepository regionAssignments;
     private final UserRepository users;
     private final TaskService tasks;
     private final AuditLogRepository audits;
     private final NotificationService notifications;
 
     public LeadService(LeadRepository repo, ContentPackageRepository packages, OperatorProfileRepository operators,
-                       UserRepository users, TaskService tasks, AuditLogRepository audits, NotificationService notifications) {
+                       ConsultantRegionAssignmentRepository regionAssignments, UserRepository users, TaskService tasks,
+                       AuditLogRepository audits, NotificationService notifications) {
         this.repo = repo;
         this.packages = packages;
         this.operators = operators;
+        this.regionAssignments = regionAssignments;
         this.users = users;
         this.tasks = tasks;
         this.audits = audits;
@@ -75,9 +80,11 @@ public class LeadService {
     @Transactional
     public Lead createOfficialWebsiteLead(LeadDtos.OfficialWebsiteRequest r, String sourcePage, String userAgent) {
         String rawDestination = clean(r.destination());
-        String regionCode = resolveRegionCode(rawDestination);
-        String regionName = resolveRegionName(regionCode);
-        OperatorProfile advisor = pickAdvisor(rawDestination).orElse(null);
+        String requestedRegionCode = clean(r.intentionRegionCode());
+        String regionCode = requestedRegionCode == null ? resolveRegionCode(rawDestination) : requestedRegionCode.toUpperCase(Locale.ROOT);
+        ConsultantRegionAssignment assignment = pickRegionAssignment(regionCode).orElse(null);
+        String regionName = assignment == null ? resolveRegionName(regionCode, clean(r.intentionRegionName())) : assignment.getRegionName();
+        OperatorProfile advisor = assignment == null ? null : operators.findById(assignment.getConsultantProfileId()).orElse(null);
 
         Lead lead = new Lead();
         lead.setLeadNo("WEB" + System.currentTimeMillis());
@@ -87,7 +94,8 @@ public class LeadService {
         lead.setWechat(clean(r.wechat()));
         lead.setSourceChannel(clean(r.source()) == null ? "official_website_one_minute_consultation" : clean(r.source()));
         lead.setSourcePage(clean(sourcePage));
-        lead.setTargetCountry(rawDestination);
+        lead.setTargetCountry(rawDestination == null ? regionName : rawDestination);
+        lead.setIntentionRegionId(assignment == null ? null : assignment.getRegionId());
         lead.setIntentionRegionCode(regionCode);
         lead.setIntentionRegionName(regionName);
         lead.setBudget(clean(r.budget()));
@@ -95,25 +103,25 @@ public class LeadService {
         lead.setRemark(buildOfficialWebsiteRemark(r, userAgent, regionName));
         lead.setUpdatedAt(Instant.now());
 
-        if (advisor == null) {
+        if (assignment == null || advisor == null || !isActiveConsultantProfile(advisor)) {
             lead.setStatus(LeadStatus.unassigned);
             lead.setAssignMode("manual_required");
-            lead.setAssignReason("官网1分钟咨询线索已创建，但当前没有启用顾问，需要后台手动分配");
+            lead.setAssignReason("官网1分钟咨询线索已创建，但意向区域[" + safe(regionName) + "]当前没有启用顾问承接，需要后台手动分配");
             lead.setNotifyStatus("pending_manual_assign");
         } else {
             lead.setStatus(LeadStatus.assigned);
             lead.setAssignedTo(advisor.getUserId());
             lead.setAssignedToName(advisor.getName());
             lead.setOperatorId(advisor.getId());
-            lead.setAssignMode(matchAdvisor(advisor, regionName) ? "region_match" : "fallback_enabled_consultant");
-            lead.setAssignReason(buildAssignReason(advisor, regionName, rawDestination));
+            lead.setAssignMode("consultant_region_assignment");
+            lead.setAssignReason("按顾问区域承接表匹配：意向区域[" + safe(regionName) + "] -> 顾问[" + safe(advisor.getName()) + "]");
             lead.setAssignedAt(Instant.now());
             lead.setNotifyStatus("notified");
         }
 
         lead = repo.save(lead);
 
-        if (advisor != null) {
+        if (advisor != null && lead.getAssignedTo() != null) {
             tasks.createOfficialWebsiteLeadNotificationTask(
                     lead.getId(), lead.getStudentName(), lead.getIntentionRegionName(), advisor.getUserId(), advisor.getName()
             );
@@ -225,16 +233,23 @@ public class LeadService {
         throw BusinessException.forbidden("无权操作该线索");
     }
 
-    private Optional<OperatorProfile> pickAdvisor(String destination) {
-        String regionName = resolveRegionName(resolveRegionCode(destination));
-        List<OperatorProfile> enabledConsultants = operators.findByEnabledTrueOrderByNameAsc().stream()
+    private Optional<ConsultantRegionAssignment> pickRegionAssignment(String regionCode) {
+        String normalized = clean(regionCode) == null ? "OTHER" : regionCode.trim().toUpperCase(Locale.ROOT);
+        Optional<ConsultantRegionAssignment> matched = regionAssignments.findByRegionCodeAndEnabledTrueOrderByPriorityAscIdAsc(normalized).stream()
+                .filter(this::isActiveAssignment)
+                .findFirst();
+        if (matched.isPresent()) return matched;
+        return regionAssignments.findByRegionCodeAndEnabledTrueOrderByPriorityAscIdAsc("OTHER").stream()
+                .filter(this::isActiveAssignment)
+                .findFirst();
+    }
+
+    private boolean isActiveAssignment(ConsultantRegionAssignment assignment) {
+        if (assignment == null || assignment.getConsultantProfileId() == null || assignment.getConsultantUserId() == null || !Boolean.TRUE.equals(assignment.getEnabled())) return false;
+        return operators.findById(assignment.getConsultantProfileId())
                 .filter(this::isActiveConsultantProfile)
-                .toList();
-        if (enabledConsultants.isEmpty()) return Optional.empty();
-        return enabledConsultants.stream()
-                .filter(operator -> matchAdvisor(operator, regionName) || matchAdvisor(operator, destination))
-                .findFirst()
-                .or(() -> enabledConsultants.stream().findFirst());
+                .filter(profile -> assignment.getConsultantUserId().equals(profile.getUserId()))
+                .isPresent();
     }
 
     private boolean isActiveConsultantProfile(OperatorProfile profile) {
@@ -243,12 +258,6 @@ public class LeadService {
                 .filter(user -> "CONSULTANT".equalsIgnoreCase(user.getRoleCode()))
                 .filter(user -> user.getStatus() != null && "ACTIVE".equalsIgnoreCase(user.getStatus().name()))
                 .isPresent();
-    }
-
-    private boolean matchAdvisor(OperatorProfile operator, String destination) {
-        if (operator == null || destination == null || destination.isBlank()) return false;
-        String keyword = destination.trim().toLowerCase(Locale.ROOT);
-        return containsIgnoreCase(operator.getTeamName(), keyword) || containsIgnoreCase(operator.getName(), keyword);
     }
 
     private String resolveRegionCode(String destination) {
@@ -262,23 +271,12 @@ public class LeadService {
         return "OTHER";
     }
 
-    private String resolveRegionName(String regionCode) {
+    private String resolveRegionName(String regionCode, String fallbackName) {
         if ("UK".equalsIgnoreCase(regionCode)) return "英国";
         if ("US".equalsIgnoreCase(regionCode)) return "美国";
         if ("AUSTRALIA".equalsIgnoreCase(regionCode)) return "澳洲";
         if ("EUROPE".equalsIgnoreCase(regionCode)) return "欧洲";
-        return "其他";
-    }
-
-    private boolean containsIgnoreCase(String value, String keyword) {
-        return value != null && keyword != null && value.toLowerCase(Locale.ROOT).contains(keyword.toLowerCase(Locale.ROOT));
-    }
-
-    private String buildAssignReason(OperatorProfile advisor, String regionName, String rawDestination) {
-        if (matchAdvisor(advisor, regionName)) {
-            return "按官网1分钟咨询意向区域[" + safe(regionName) + "]匹配顾问[" + safe(advisor.getName()) + "]";
-        }
-        return "官网1分钟咨询意向[" + safe(rawDestination) + "]归类为[" + safe(regionName) + "]，未找到明确地区匹配顾问，自动分配给启用顾问[" + safe(advisor.getName()) + "]，请后台确认";
+        return fallbackName == null ? "其他" : fallbackName;
     }
 
     private String buildOfficialWebsiteRemark(LeadDtos.OfficialWebsiteRequest r, String userAgent, String regionName) {
