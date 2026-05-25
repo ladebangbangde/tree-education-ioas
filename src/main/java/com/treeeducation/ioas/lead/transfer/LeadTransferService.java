@@ -88,6 +88,14 @@ public class LeadTransferService {
     public LeadTransferDtos.Response accept(Long id, LeadTransferDtos.RespondRequest request, UserPrincipal p) {
         LeadTransferRequest row = getPendingForTarget(id, p);
         Lead lead = leads.findById(row.getLeadId()).orElseThrow(() -> BusinessException.notFound("线索不存在"));
+        if (!row.getFromConsultantId().equals(lead.getAssignedTo())) {
+            row.setStatus(LeadTransferStatus.CANCELLED);
+            row.setRespondedAt(Instant.now());
+            row.setResponseRemark("线索归属已变化，系统自动取消该转让申请");
+            row.setUpdatedAt(Instant.now());
+            transfers.save(row);
+            throw BusinessException.badRequest("线索当前已不在原顾问名下，转让申请已自动取消");
+        }
         lead.setAssignedTo(row.getToConsultantId());
         lead.setAssignedToName(row.getToConsultantName());
         lead.setAssignedAt(Instant.now());
