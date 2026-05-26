@@ -79,6 +79,20 @@ public class TaskController {
         return ApiResponse.ok(PageResponse.of(rows, pageNum, pageSize));
     }
 
+    @GetMapping("/consultant")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','CONSULTANT')")
+    @Operation(summary = "顾问个人设置任务列表，包含企业微信二维码上传与擅长地区变更申请")
+    public ApiResponse<PageResponse<TaskDtos.Response>> consultant(@RequestParam(defaultValue = "1") int pageNum,
+                                                                   @RequestParam(defaultValue = "20") int pageSize,
+                                                                   @AuthenticationPrincipal UserPrincipal p) {
+        List<TaskDtos.Response> rows = repo.findAll().stream()
+                .filter(this::isConsultantProfileTask)
+                .filter(t -> isSuperAdmin(p) || t.getAssigneeId() == null || p.id().equals(t.getAssigneeId()))
+                .map(this::toResponse)
+                .toList();
+        return ApiResponse.ok(PageResponse.of(rows, pageNum, pageSize));
+    }
+
     @GetMapping("/{id}/logs")
     @Operation(summary = "查看任务日志")
     public ApiResponse<List<String>> logs(@PathVariable Long id,
@@ -181,6 +195,10 @@ public class TaskController {
             notifyTaskCompleted(saved);
         }
         return ApiResponse.ok(toResponse(saved));
+    }
+
+    private boolean isConsultantProfileTask(Task task) {
+        return task != null && (task.getTaskType() == TaskType.consultant_qr_upload || task.getTaskType() == TaskType.consultant_region_change);
     }
 
     private PurgeResult purgeUploadObject(Task task) {
