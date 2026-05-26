@@ -85,7 +85,7 @@ public class ProfileService {
         validateImage(file, "官网头像图片不能为空", "请上传图片格式的官网头像");
 
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        String prefix = "consultant-avatar/" + today.getYear() + "/" + String.format("%02d", today.getMonthValue()) + "/" + String.format("%02d", today.getDayOfMonth()) + "/" + safe(profile.getName());
+        String prefix = "consultant/avatar/" + today.getYear() + "/" + String.format("%02d", today.getMonthValue()) + "/" + String.format("%02d", today.getDayOfMonth()) + "/" + safe(profile.getName());
         StoredObject object = storage.put(prefix, file);
         profile.setConsultantAvatarPublicUrl(object.previewUrl());
 
