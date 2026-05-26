@@ -76,19 +76,34 @@ public class ProfileService {
     }
 
     @Transactional
+    public ProfileDtos.AvatarUploadResponse uploadConsultantAvatar(MultipartFile file, UserPrincipal principal) {
+        User user = currentUser(principal);
+        if (!"CONSULTANT".equalsIgnoreCase(user.getRoleCode())) {
+            throw BusinessException.forbidden("只有顾问账号可以上传自己的官网头像");
+        }
+        OperatorProfile profile = profiles.findByUserId(user.getId()).orElseThrow(() -> BusinessException.notFound("顾问档案不存在"));
+        validateImage(file, "官网头像图片不能为空", "请上传图片格式的官网头像");
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        String prefix = "consultant-avatar/" + today.getYear() + "/" + String.format("%02d", today.getMonthValue()) + "/" + String.format("%02d", today.getDayOfMonth()) + "/" + safe(profile.getName());
+        StoredObject object = storage.put(prefix, file);
+        profile.setConsultantAvatarPublicUrl(object.previewUrl());
+
+        notifications.sendToUser(new NotificationDtos.SendRequest(user.getId(), "CONSULTANT", "官网头像上传完成",
+                "你的官网展示头像已上传成功，官网顾问团队区域会使用这张头像。",
+                "profile", profile.getId(), "/profile/settings", "CONSULTANT_AVATAR_UPLOAD_SUCCESS", 20));
+
+        return new ProfileDtos.AvatarUploadResponse(object.bucketName(), object.objectKey(), object.previewUrl());
+    }
+
+    @Transactional
     public ProfileDtos.QrUploadResponse uploadConsultantQr(MultipartFile file, UserPrincipal principal) {
         User user = currentUser(principal);
         if (!"CONSULTANT".equalsIgnoreCase(user.getRoleCode())) {
             throw BusinessException.forbidden("只有顾问账号可以上传自己的企业微信二维码");
         }
         OperatorProfile profile = profiles.findByUserId(user.getId()).orElseThrow(() -> BusinessException.notFound("顾问档案不存在"));
-        if (file == null || file.isEmpty()) {
-            throw BusinessException.badRequest("二维码图片不能为空");
-        }
-        String contentType = file.getContentType() == null ? "" : file.getContentType().toLowerCase();
-        if (!contentType.startsWith("image/")) {
-            throw BusinessException.badRequest("请上传图片格式的企业微信二维码");
-        }
+        validateImage(file, "二维码图片不能为空", "请上传图片格式的企业微信二维码");
 
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         String prefix = "consultant/" + today.getYear() + "/" + String.format("%02d", today.getMonthValue()) + "/" + String.format("%02d", today.getDayOfMonth()) + "/" + safe(profile.getName());
@@ -216,6 +231,16 @@ public class ProfileService {
                     .ifPresent(profile -> result.put(profile.getId(), ProfileDtos.PublicConsultantCardResponse.of(profile, row.getRegionCode(), row.getRegionName(), row.getPriority())));
         });
         return result.values().stream().toList();
+    }
+
+    private void validateImage(MultipartFile file, String emptyMessage, String typeMessage) {
+        if (file == null || file.isEmpty()) {
+            throw BusinessException.badRequest(emptyMessage);
+        }
+        String contentType = file.getContentType() == null ? "" : file.getContentType().toLowerCase();
+        if (!contentType.startsWith("image/")) {
+            throw BusinessException.badRequest(typeMessage);
+        }
     }
 
     private void syncApprovedRegionAssignment(OperatorProfile profile, ConsultantRegionChangeRequest row) {
