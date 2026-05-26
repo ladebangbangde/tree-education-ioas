@@ -11,7 +11,8 @@ public final class ProfileDtos {
 
     public record MeResponse(Long userId, String username, String displayName, String roleCode, String department,
                              Long profileId, String teamName, String phone,
-                             String consultantQrPublicUrl, String publicTitle, String publicBio,
+                             String consultantQrPublicUrl, String consultantAvatarPublicUrl,
+                             String publicTitle, String publicBio,
                              String specialityRegionCodes, String specialityRegionNames) {
         public static MeResponse of(User user, OperatorProfile profile) {
             return new MeResponse(user.getId(), user.getUsername(), user.getDisplayName(), user.getRoleCode(), user.getDepartment(),
@@ -19,12 +20,15 @@ public final class ProfileDtos {
                     profile == null ? null : profile.getTeamName(),
                     profile == null ? null : profile.getPhone(),
                     profile == null ? null : profile.getConsultantQrPublicUrl(),
+                    profile == null ? null : profile.getConsultantAvatarPublicUrl(),
                     profile == null ? null : profile.getPublicTitle(),
                     profile == null ? null : profile.getPublicBio(),
                     profile == null ? null : profile.getSpecialityRegionCodes(),
                     profile == null ? null : profile.getSpecialityRegionNames());
         }
     }
+
+    public record ConsultantPublicProfileUpdateRequest(String publicBio) {}
 
     public record RegionChangeRequest(String requestedRegionCodes, String requestedRegionNames, String reason) {}
 
@@ -46,10 +50,18 @@ public final class ProfileDtos {
     public record QrUploadResponse(String bucketName, String objectKey, String publicUrl, Long taskId) {}
 
     public record PublicConsultantResponse(Long userId, String name, String regionCode, String regionName,
-                                           String publicTitle, String publicBio, String qrUrl) {
+                                           String publicTitle, String publicBio, String avatarUrl, String qrUrl) {
         public static PublicConsultantResponse of(OperatorProfile p, String regionCode, String regionName) {
             return new PublicConsultantResponse(p.getUserId(), p.getName(), regionCode, regionName,
-                    p.getPublicTitle(), p.getPublicBio(), p.getConsultantQrPublicUrl());
+                    p.getPublicTitle(), p.getPublicBio(), p.getConsultantAvatarPublicUrl(), p.getConsultantQrPublicUrl());
+        }
+    }
+
+    public record PublicConsultantCardResponse(Long userId, String name, String regionCode, String regionName,
+                                               String publicTitle, String publicBio, String avatarUrl, Integer priority) {
+        public static PublicConsultantCardResponse of(OperatorProfile p, String regionCode, String regionName, Integer priority) {
+            return new PublicConsultantCardResponse(p.getUserId(), p.getName(), regionCode, regionName,
+                    p.getPublicTitle(), p.getPublicBio(), p.getConsultantAvatarPublicUrl(), priority);
         }
     }
 }
