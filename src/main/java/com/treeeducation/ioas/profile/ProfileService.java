@@ -24,11 +24,14 @@ import org.springframework.web.multipart.MultipartFile;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Map;
 
 @Service
 public class ProfileService {
+    private static final int PUBLIC_BIO_MAX_LENGTH = 80;
+
     private final UserRepository users;
     private final OperatorProfileRepository profiles;
     private final ConsultantRegionAssignmentRepository assignments;
@@ -54,6 +57,21 @@ public class ProfileService {
     public ProfileDtos.MeResponse me(UserPrincipal principal) {
         User user = currentUser(principal);
         OperatorProfile profile = profiles.findByUserId(user.getId()).orElse(null);
+        return ProfileDtos.MeResponse.of(user, profile);
+    }
+
+    @Transactional
+    public ProfileDtos.MeResponse updateConsultantPublicProfile(ProfileDtos.ConsultantPublicProfileUpdateRequest request, UserPrincipal principal) {
+        User user = currentUser(principal);
+        if (!"CONSULTANT".equalsIgnoreCase(user.getRoleCode())) {
+            throw BusinessException.forbidden("只有顾问账号可以编辑自己的官网展示简介");
+        }
+        OperatorProfile profile = profiles.findByUserId(user.getId()).orElseThrow(() -> BusinessException.notFound("顾问档案不存在"));
+        String publicBio = request == null ? null : trim(request.publicBio());
+        if (publicBio != null && publicBio.length() > PUBLIC_BIO_MAX_LENGTH) {
+            throw BusinessException.badRequest("个人简介最多只能填写" + PUBLIC_BIO_MAX_LENGTH + "个字");
+        }
+        profile.setPublicBio(publicBio);
         return ProfileDtos.MeResponse.of(user, profile);
     }
 
@@ -184,6 +202,17 @@ public class ProfileService {
         return profile == null ? null : ProfileDtos.PublicConsultantResponse.of(profile, regionCode, regionName);
     }
 
+    public List<ProfileDtos.PublicConsultantCardResponse> publicConsultants() {
+        Map<Long, ProfileDtos.PublicConsultantCardResponse> result = new LinkedHashMap<>();
+        assignments.findByEnabledTrueOrderByPriorityAscIdAsc().forEach(row -> {
+            if (row.getConsultantProfileId() == null || result.containsKey(row.getConsultantProfileId())) return;
+            profiles.findById(row.getConsultantProfileId())
+                    .filter(profile -> Boolean.TRUE.equals(profile.getEnabled()))
+                    .ifPresent(profile -> result.put(profile.getId(), ProfileDtos.PublicConsultantCardResponse.of(profile, row.getRegionCode(), row.getRegionName(), row.getPriority())));
+        });
+        return result.values().stream().toList();
+    }
+
     private User currentUser(UserPrincipal principal) {
         if (principal == null || principal.id() == null) throw BusinessException.forbidden("请先登录");
         return users.findById(principal.id()).orElseThrow(() -> BusinessException.forbidden("登录用户不存在"));
@@ -191,6 +220,12 @@ public class ProfileService {
 
     private boolean blank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private String trim(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private String safe(String value) {
