@@ -91,7 +91,7 @@ public class ProfileService {
 
         notifications.sendToUser(new NotificationDtos.SendRequest(user.getId(), "CONSULTANT", "官网头像上传完成",
                 "你的官网展示头像已上传成功，官网顾问团队区域会使用这张头像。",
-                "profile", profile.getId(), "/profile/settings", "CONSULTANT_AVATAR_UPLOAD_SUCCESS", 20));
+                "profile", profile.getId(), "/profile/settings", "AVATAR_UPLOAD", 20));
 
         return new ProfileDtos.AvatarUploadResponse(object.bucketName(), object.objectKey(), object.previewUrl());
     }
