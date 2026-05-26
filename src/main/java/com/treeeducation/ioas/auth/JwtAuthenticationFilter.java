@@ -39,6 +39,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             try {
                 Claims claims = jwtService.parse(header.substring(7));
                 userRepository.findByUsername(claims.getSubject()).ifPresent(user -> {
+                    Integer tokenVersion = claims.get("ver", Integer.class);
+                    if (tokenVersion == null || !user.getTokenVersion().equals(tokenVersion)) {
+                        return;
+                    }
                     UserPrincipal principal = new UserPrincipal(
                             user.getId(),
                             user.getUsername(),
