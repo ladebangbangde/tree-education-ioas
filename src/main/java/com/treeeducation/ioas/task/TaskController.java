@@ -60,7 +60,7 @@ public class TaskController {
                                                               @RequestParam(defaultValue = "20") int pageSize,
                                                               @AuthenticationPrincipal UserPrincipal p) {
         List<TaskDtos.Response> rows = repo.findByRoleType(TaskRoleType.media).stream()
-                .filter(t -> isSuperAdmin(p) || t.getAssigneeId() == null || p.id().equals(t.getAssigneeId()))
+                .filter(t -> canReadTask(t, p, TaskRoleType.media))
                 .map(this::toResponse)
                 .toList();
         return ApiResponse.ok(PageResponse.of(rows, pageNum, pageSize));
@@ -73,7 +73,7 @@ public class TaskController {
                                                                  @RequestParam(defaultValue = "20") int pageSize,
                                                                  @AuthenticationPrincipal UserPrincipal p) {
         List<TaskDtos.Response> rows = repo.findByRoleType(TaskRoleType.operator).stream()
-                .filter(t -> isSuperAdmin(p) || t.getAssigneeId() == null || p.id().equals(t.getAssigneeId()))
+                .filter(t -> canReadTask(t, p, TaskRoleType.operator))
                 .map(this::toResponse)
                 .toList();
         return ApiResponse.ok(PageResponse.of(rows, pageNum, pageSize));
@@ -87,7 +87,7 @@ public class TaskController {
                                                                    @AuthenticationPrincipal UserPrincipal p) {
         List<TaskDtos.Response> rows = repo.findAll().stream()
                 .filter(this::isConsultantProfileTask)
-                .filter(t -> isSuperAdmin(p) || t.getAssigneeId() == null || p.id().equals(t.getAssigneeId()))
+                .filter(t -> canReadConsultantTask(t, p))
                 .map(this::toResponse)
                 .toList();
         return ApiResponse.ok(PageResponse.of(rows, pageNum, pageSize));
@@ -99,7 +99,7 @@ public class TaskController {
                                           @RequestParam(defaultValue = "200") int lines,
                                           @AuthenticationPrincipal UserPrincipal p) {
         Task t = repo.findById(id).orElseThrow(() -> BusinessException.notFound("任务不存在"));
-        assertOwner(t, p);
+        assertTaskAccess(t, p);
         return ApiResponse.ok(taskLogService.tail(id, Math.min(Math.max(lines, 1), 1000)));
     }
 
@@ -108,7 +108,7 @@ public class TaskController {
     public ApiResponse<TaskDtos.Response> cancel(@PathVariable Long id,
                                                  @AuthenticationPrincipal UserPrincipal p) {
         Task t = repo.findById(id).orElseThrow(() -> BusinessException.notFound("任务不存在"));
-        assertOwner(t, p);
+        assertTaskAccess(t, p);
         if ("success".equalsIgnoreCase(t.getStatus()) || "failed".equalsIgnoreCase(t.getStatus()) || "cancelled".equalsIgnoreCase(t.getStatus())) {
             return ApiResponse.ok(toResponse(t));
         }
@@ -144,7 +144,7 @@ public class TaskController {
                 continue;
             }
             try {
-                assertOwner(task, p);
+                assertTaskAccess(task, p);
                 if (purgeFiles) {
                     PurgeResult result = purgeUploadObject(task);
                     deletedObjects += result.objects();
@@ -171,13 +171,13 @@ public class TaskController {
     public ApiResponse<TaskDtos.Response> update(@PathVariable Long id, @RequestBody TaskDtos.UpdateRequest r,
                                                  @AuthenticationPrincipal UserPrincipal p) {
         Task t = repo.findById(id).orElseThrow(() -> BusinessException.notFound("任务不存在"));
-        assertOwner(t, p);
+        assertTaskAccess(t, p);
         String oldStatus = t.getStatus();
         if (r.status() != null) t.setStatus(r.status());
         if (r.progress() != null) t.setProgress(r.progress());
         if (r.errorMessage() != null) t.setErrorMessage(r.errorMessage());
-        if (r.assigneeId() != null) t.setAssigneeId(r.assigneeId());
-        if (r.assigneeName() != null) t.setAssigneeName(r.assigneeName());
+        if (r.assigneeId() != null && isSuperAdmin(p)) t.setAssigneeId(r.assigneeId());
+        if (r.assigneeName() != null && isSuperAdmin(p)) t.setAssigneeName(r.assigneeName());
         if (isCompletedStatus(t.getStatus())) {
             t.setCompletedAt(Instant.now());
         }
@@ -199,6 +199,30 @@ public class TaskController {
 
     private boolean isConsultantProfileTask(Task task) {
         return task != null && (task.getTaskType() == TaskType.consultant_qr_upload || task.getTaskType() == TaskType.consultant_region_change);
+    }
+
+    private boolean canReadTask(Task task, UserPrincipal p, TaskRoleType expectedRoleType) {
+        if (task == null || task.getRoleType() != expectedRoleType) return false;
+        if (isSuperAdmin(p)) return true;
+        if (p == null || p.id() == null || p.role() == null) return false;
+        if (expectedRoleType == TaskRoleType.media && !"MEDIA".equalsIgnoreCase(p.role())) return false;
+        if (expectedRoleType == TaskRoleType.operator && !"OPERATOR".equalsIgnoreCase(p.role())) return false;
+        return task.getAssigneeId() != null && p.id().equals(task.getAssigneeId());
+    }
+
+    private boolean canReadConsultantTask(Task task, UserPrincipal p) {
+        if (task == null || !isConsultantProfileTask(task)) return false;
+        if (isSuperAdmin(p)) return true;
+        if (p == null || p.id() == null || !"CONSULTANT".equalsIgnoreCase(p.role())) return false;
+        return task.getAssigneeId() != null && p.id().equals(task.getAssigneeId());
+    }
+
+    private void assertTaskAccess(Task task, UserPrincipal p) {
+        if (isSuperAdmin(p)) return;
+        if (canReadConsultantTask(task, p)) return;
+        if (task.getRoleType() == TaskRoleType.media && canReadTask(task, p, TaskRoleType.media)) return;
+        if (task.getRoleType() == TaskRoleType.operator && canReadTask(task, p, TaskRoleType.operator)) return;
+        throw BusinessException.forbidden("只能查看或操作自己账号所属角色范围内的任务");
     }
 
     private PurgeResult purgeUploadObject(Task task) {
@@ -252,11 +276,6 @@ public class TaskController {
         } catch (RuntimeException ex) {
             taskLogService.warn(task.getId(), "task completed notification failed: " + ex.getMessage());
         }
-    }
-
-    private void assertOwner(Task t, UserPrincipal p) {
-        if (isSuperAdmin(p) || t.getAssigneeId() == null || p.id().equals(t.getAssigneeId())) return;
-        throw BusinessException.forbidden("只能操作自己的任务");
     }
 
     private boolean isSuperAdmin(UserPrincipal p) {
