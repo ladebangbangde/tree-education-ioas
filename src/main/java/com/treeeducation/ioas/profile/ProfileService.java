@@ -181,6 +181,9 @@ public class ProfileService {
         row.setUpdatedAt(Instant.now());
         profile.setSpecialityRegionCodes(row.getRequestedRegionCodes());
         profile.setSpecialityRegionNames(row.getRequestedRegionNames());
+        profile.setPublicTitle(firstCsvValue(row.getRequestedRegionNames(), "留学") + "留学规划顾问");
+        syncApprovedRegionAssignment(profile, row);
+        markRegionChangeTasks(profile, "APPROVED");
         return ProfileDtos.RegionChangeResponse.of(row);
     }
 
@@ -188,12 +191,14 @@ public class ProfileService {
     public ProfileDtos.RegionChangeResponse rejectRegionChange(Long id, ProfileDtos.ReviewRequest request, UserPrincipal principal) {
         User reviewer = currentUser(principal);
         ConsultantRegionChangeRequest row = changeRequests.findById(id).orElseThrow(() -> BusinessException.notFound("申请不存在"));
+        OperatorProfile profile = profiles.findById(row.getConsultantProfileId()).orElse(null);
         row.setStatus(ConsultantRegionChangeStatus.REJECTED);
         row.setReviewerUserId(reviewer.getId());
         row.setReviewerName(reviewer.getDisplayName());
         row.setReviewRemark(request == null ? null : request.remark());
         row.setReviewedAt(Instant.now());
         row.setUpdatedAt(Instant.now());
+        if (profile != null) markRegionChangeTasks(profile, "REJECTED");
         return ProfileDtos.RegionChangeResponse.of(row);
     }
 
@@ -211,6 +216,49 @@ public class ProfileService {
                     .ifPresent(profile -> result.put(profile.getId(), ProfileDtos.PublicConsultantCardResponse.of(profile, row.getRegionCode(), row.getRegionName(), row.getPriority())));
         });
         return result.values().stream().toList();
+    }
+
+    private void syncApprovedRegionAssignment(OperatorProfile profile, ConsultantRegionChangeRequest row) {
+        String regionCode = firstCsvValue(row.getRequestedRegionCodes(), "OTHER");
+        String regionName = firstCsvValue(row.getRequestedRegionNames(), "其他区域");
+        List<ConsultantRegionAssignment> rows = assignments.findByConsultantUserIdOrderByPriorityAscIdAsc(profile.getUserId());
+        if (rows.isEmpty()) {
+            return;
+        }
+        ConsultantRegionAssignment primary = rows.get(0);
+        primary.setConsultantProfileId(profile.getId());
+        primary.setConsultantUserId(profile.getUserId());
+        primary.setRegionCode(regionCode);
+        primary.setRegionName(regionName);
+        primary.setEnabled(true);
+        assignments.save(primary);
+        for (int i = 1; i < rows.size(); i++) {
+            ConsultantRegionAssignment extra = rows.get(i);
+            extra.setEnabled(false);
+            assignments.save(extra);
+        }
+    }
+
+    private void markRegionChangeTasks(OperatorProfile profile, String status) {
+        tasks.findAll().stream()
+                .filter(task -> task.getTaskType() == TaskType.consultant_region_change)
+                .filter(task -> profile.getUserId().equals(task.getAssigneeId()))
+                .filter(task -> "PENDING".equalsIgnoreCase(task.getStatus()))
+                .forEach(task -> {
+                    task.setStatus(status);
+                    task.setProgress(100);
+                    task.setCompletedAt(Instant.now());
+                    task.setUpdatedAt(Instant.now());
+                    task.setTitle(("APPROVED".equalsIgnoreCase(status) ? "顾问擅长地区变更已通过 - " : "顾问擅长地区变更已拒绝 - ") + profile.getName());
+                    tasks.save(task);
+                });
+    }
+
+    private String firstCsvValue(String value, String defaultValue) {
+        String cleaned = trim(value);
+        if (cleaned == null) return defaultValue;
+        String[] parts = cleaned.split(",");
+        return parts.length == 0 || parts[0].trim().isEmpty() ? defaultValue : parts[0].trim();
     }
 
     private User currentUser(UserPrincipal principal) {
