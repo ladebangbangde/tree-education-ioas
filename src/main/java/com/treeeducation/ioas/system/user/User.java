@@ -26,6 +26,8 @@ public class User {
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private UserStatus status = UserStatus.ACTIVE;
+    @Column(name = "token_version", nullable = false)
+    private Integer tokenVersion = 0;
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -45,6 +47,8 @@ public class User {
     public void setRoleCode(String roleCode) { this.roleCode = roleCode; }
     public UserStatus getStatus() { return status; }
     public void setStatus(UserStatus status) { this.status = status; }
+    public Integer getTokenVersion() { return tokenVersion == null ? 0 : tokenVersion; }
+    public void setTokenVersion(Integer tokenVersion) { this.tokenVersion = tokenVersion == null ? 0 : tokenVersion; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 }
