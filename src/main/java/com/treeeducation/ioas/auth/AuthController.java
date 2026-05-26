@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 /** Login and current-user APIs. */
@@ -32,12 +33,15 @@ public class AuthController {
     }
 
     @PostMapping("/login")
+    @Transactional
     @Operation(summary = "用户名密码登录")
     public ApiResponse<AuthDtos.LoginResponse> login(@Valid @RequestBody AuthDtos.LoginRequest request) {
         User user = users.findByUsername(request.username()).orElseThrow(() -> BusinessException.badRequest("用户名或密码错误"));
         if (!encoder.matches(request.password(), user.getPasswordHash())) {
             throw BusinessException.badRequest("用户名或密码错误");
         }
+        user.setTokenVersion(user.getTokenVersion() + 1);
+        user = users.save(user);
         auditLogin(user);
         return ApiResponse.ok(new AuthDtos.LoginResponse(jwt.issue(user), "Bearer", toLoginUser(user)));
     }
