@@ -82,10 +82,4 @@ public class ProfileController {
                                                                  @AuthenticationPrincipal UserPrincipal principal) {
         return ApiResponse.ok(service.rejectRegionChange(id, request, principal));
     }
-
-    @GetMapping("/../public/consultants")
-    @Operation(summary = "官网公开顾问展示列表")
-    public ApiResponse<List<ProfileDtos.PublicConsultantCardResponse>> publicConsultants() {
-        return ApiResponse.ok(service.publicConsultants());
-    }
 }
