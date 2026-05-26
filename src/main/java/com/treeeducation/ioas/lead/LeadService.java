@@ -83,8 +83,11 @@ public class LeadService {
         String rawDestination = clean(r.destination());
         String requestedRegionCode = clean(r.intentionRegionCode());
         String regionCode = requestedRegionCode == null ? resolveRegionCode(rawDestination) : requestedRegionCode.toUpperCase(Locale.ROOT);
+        boolean otherRegion = isOtherRegion(regionCode);
         ConsultantRegionAssignment assignment = pickRegionAssignment(regionCode).orElse(null);
-        String regionName = assignment == null ? resolveRegionName(regionCode, clean(r.intentionRegionName())) : assignment.getRegionName();
+        String regionName = otherRegion
+                ? resolveRegionName(regionCode, clean(r.intentionRegionName()))
+                : assignment == null ? resolveRegionName(regionCode, clean(r.intentionRegionName())) : assignment.getRegionName();
         OperatorProfile advisor = assignment == null ? null : operators.findById(assignment.getConsultantProfileId()).orElse(null);
 
         Lead lead = new Lead();
@@ -96,8 +99,8 @@ public class LeadService {
         lead.setSourceChannel(clean(r.source()) == null ? "official_website_one_minute_consultation" : clean(r.source()));
         lead.setSourcePage(clean(sourcePage));
         lead.setTargetCountry(rawDestination == null ? regionName : rawDestination);
-        lead.setIntentionRegionId(assignment == null ? null : assignment.getRegionId());
-        lead.setIntentionRegionCode(regionCode);
+        lead.setIntentionRegionId(assignment == null || otherRegion ? null : assignment.getRegionId());
+        lead.setIntentionRegionCode(otherRegion ? "OTHER" : regionCode);
         lead.setIntentionRegionName(regionName);
         lead.setBudget(clean(r.budget()));
         lead.setDegreeLevel(clean(r.education()));
@@ -114,8 +117,10 @@ public class LeadService {
             lead.setAssignedTo(advisor.getUserId());
             lead.setAssignedToName(advisor.getName());
             lead.setOperatorId(advisor.getId());
-            lead.setAssignMode("consultant_region_assignment");
-            lead.setAssignReason("按顾问区域承接表匹配：意向区域[" + safe(regionName) + "] -> 顾问[" + safe(advisor.getName()) + "]");
+            lead.setAssignMode(otherRegion ? "other_region_fair_assignment" : "consultant_region_assignment");
+            lead.setAssignReason(otherRegion
+                    ? "其他区域公平分配：按当前启用顾问 other_assign_count 最少优先，已分配给顾问[" + safe(advisor.getName()) + "]，当前其他区域分配次数=" + assignment.getOtherAssignCount()
+                    : "按顾问区域承接表匹配：意向区域[" + safe(regionName) + "] -> 顾问[" + safe(advisor.getName()) + "]");
             lead.setAssignedAt(Instant.now());
             lead.setNotifyStatus("notified");
         }
@@ -243,13 +248,22 @@ public class LeadService {
 
     private Optional<ConsultantRegionAssignment> pickRegionAssignment(String regionCode) {
         String normalized = clean(regionCode) == null ? "OTHER" : regionCode.trim().toUpperCase(Locale.ROOT);
+        if (isOtherRegion(normalized)) {
+            return pickOtherRegionAssignment();
+        }
         Optional<ConsultantRegionAssignment> matched = regionAssignments.findByRegionCodeAndEnabledTrueOrderByPriorityAscIdAsc(normalized).stream()
                 .filter(this::isActiveAssignment)
                 .findFirst();
         if (matched.isPresent()) return matched;
-        return regionAssignments.findByRegionCodeAndEnabledTrueOrderByPriorityAscIdAsc("OTHER").stream()
+        return pickOtherRegionAssignment();
+    }
+
+    private Optional<ConsultantRegionAssignment> pickOtherRegionAssignment() {
+        Optional<ConsultantRegionAssignment> selected = regionAssignments.findEnabledForOtherRegionFairAssignmentWithLock().stream()
                 .filter(this::isActiveAssignment)
                 .findFirst();
+        selected.ifPresent(assignment -> assignment.setOtherAssignCount(assignment.getOtherAssignCount() + 1));
+        return selected;
     }
 
     private boolean isActiveAssignment(ConsultantRegionAssignment assignment) {
@@ -268,6 +282,10 @@ public class LeadService {
                 .isPresent();
     }
 
+    private boolean isOtherRegion(String regionCode) {
+        return "OTHER".equalsIgnoreCase(safe(regionCode)) || "其他".equals(safe(regionCode)) || "其他区域".equals(safe(regionCode));
+    }
+
     private String resolveRegionCode(String destination) {
         String value = clean(destination);
         if (value == null) return "OTHER";
@@ -284,7 +302,7 @@ public class LeadService {
         if ("US".equalsIgnoreCase(regionCode)) return "美国";
         if ("AUSTRALIA".equalsIgnoreCase(regionCode)) return "澳洲";
         if ("EUROPE".equalsIgnoreCase(regionCode)) return "欧洲";
-        return fallbackName == null ? "其他" : fallbackName;
+        return fallbackName == null || fallbackName.isBlank() ? "其他区域" : fallbackName;
     }
 
     private String buildOfficialWebsiteRemark(LeadDtos.OfficialWebsiteRequest r, String userAgent, String regionName) {
