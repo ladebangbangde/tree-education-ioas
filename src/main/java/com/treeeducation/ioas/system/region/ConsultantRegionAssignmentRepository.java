@@ -12,6 +12,7 @@ public interface ConsultantRegionAssignmentRepository extends JpaRepository<Cons
     List<ConsultantRegionAssignment> findByEnabledTrueOrderByPriorityAscIdAsc();
     List<ConsultantRegionAssignment> findByRegionCodeAndEnabledTrueOrderByPriorityAscIdAsc(String regionCode);
     Optional<ConsultantRegionAssignment> findFirstByRegionCodeAndEnabledTrueOrderByPriorityAscIdAsc(String regionCode);
+    List<ConsultantRegionAssignment> findByConsultantUserIdOrderByPriorityAscIdAsc(Long consultantUserId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
