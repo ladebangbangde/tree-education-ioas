@@ -18,8 +18,16 @@ public class JwtService {
     public JwtService(JwtProperties props) { this.props = props; this.key = Keys.hmacShaKeyFor(props.secret().getBytes(StandardCharsets.UTF_8)); }
     public String issue(User user) {
         Instant now = Instant.now();
-        return Jwts.builder().issuer(props.issuer()).subject(user.getUsername()).claim("uid", user.getId()).claim("role", user.getRoleCode())
-                .issuedAt(Date.from(now)).expiration(Date.from(now.plusSeconds(props.expiresMinutes() * 60))).signWith(key).compact();
+        return Jwts.builder()
+                .issuer(props.issuer())
+                .subject(user.getUsername())
+                .claim("uid", user.getId())
+                .claim("role", user.getRoleCode())
+                .claim("ver", user.getTokenVersion())
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(now.plusSeconds(props.expiresMinutes() * 60)))
+                .signWith(key)
+                .compact();
     }
     public Claims parse(String token) { return Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload(); }
 }
