@@ -36,7 +36,7 @@ public class NotificationMessage {
     @Column(name = "action_url", length = 300)
     private String actionUrl;
 
-    @Column(name = "notification_type", nullable = false, length = 30)
+    @Column(name = "notification_type", nullable = false, length = 80)
     private String notificationType = "INFO";
 
     @Column(nullable = false)
