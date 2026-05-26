@@ -36,7 +36,6 @@ public class ProfileController {
     }
 
     @PostMapping("/consultant/avatar")
-    @PreAuthorize("hasRole('CONSULTANT')")
     @Operation(summary = "顾问上传自己的官网展示头像")
     public ApiResponse<ProfileDtos.AvatarUploadResponse> uploadConsultantAvatar(@RequestPart("file") MultipartFile file,
                                                                                  @AuthenticationPrincipal UserPrincipal principal) {
