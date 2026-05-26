@@ -16,6 +16,7 @@ public class OperatorProfile {
     @Column(length = 100) private String consultantQrBucketName;
     @Column(length = 500) private String consultantQrObjectKey;
     @Column(length = 1000) private String consultantQrPublicUrl;
+    @Column(length = 1000) private String consultantAvatarPublicUrl;
     @Column(length = 120) private String publicTitle;
     @Column(length = 500) private String publicBio;
     @Column(length = 255) private String specialityRegionCodes;
@@ -31,9 +32,16 @@ public class OperatorProfile {
     public String getConsultantQrBucketName(){return consultantQrBucketName;} public void setConsultantQrBucketName(String consultantQrBucketName){this.consultantQrBucketName=consultantQrBucketName;}
     public String getConsultantQrObjectKey(){return consultantQrObjectKey;} public void setConsultantQrObjectKey(String consultantQrObjectKey){this.consultantQrObjectKey=consultantQrObjectKey;}
     public String getConsultantQrPublicUrl(){return consultantQrPublicUrl;} public void setConsultantQrPublicUrl(String consultantQrPublicUrl){this.consultantQrPublicUrl=consultantQrPublicUrl;}
+    public String getConsultantAvatarPublicUrl(){return consultantAvatarPublicUrl;} public void setConsultantAvatarPublicUrl(String consultantAvatarPublicUrl){this.consultantAvatarPublicUrl=consultantAvatarPublicUrl;}
     public String getPublicTitle(){return publicTitle;} public void setPublicTitle(String publicTitle){this.publicTitle=publicTitle;}
-    public String getPublicBio(){return publicBio;} public void setPublicBio(String publicBio){this.publicBio=publicBio;}
+    public String getPublicBio(){return publicBio;} public void setPublicBio(String publicBio){this.publicBio=bioOrNull(publicBio);}
     public String getSpecialityRegionCodes(){return specialityRegionCodes;} public void setSpecialityRegionCodes(String specialityRegionCodes){this.specialityRegionCodes=specialityRegionCodes;}
     public String getSpecialityRegionNames(){return specialityRegionNames;} public void setSpecialityRegionNames(String specialityRegionNames){this.specialityRegionNames=specialityRegionNames;}
     public Instant getCreatedAt(){return createdAt;} public void setCreatedAt(Instant createdAt){this.createdAt=createdAt;}
+
+    private String bioOrNull(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
 }
