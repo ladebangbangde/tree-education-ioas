@@ -13,7 +13,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/profile")
-@Tag(name = "Profile Settings", description = "个人信息设置、顾问二维码和擅长地区变更申请")
+@Tag(name = "Profile Settings", description = "个人信息设置、顾问二维码、官网头像和擅长地区变更申请")
 public class ProfileController {
     private final ProfileService service;
 
@@ -33,6 +33,14 @@ public class ProfileController {
     public ApiResponse<ProfileDtos.MeResponse> updateConsultantPublicProfile(@RequestBody ProfileDtos.ConsultantPublicProfileUpdateRequest request,
                                                                                @AuthenticationPrincipal UserPrincipal principal) {
         return ApiResponse.ok(service.updateConsultantPublicProfile(request, principal));
+    }
+
+    @PostMapping("/consultant/avatar")
+    @PreAuthorize("hasRole('CONSULTANT')")
+    @Operation(summary = "顾问上传自己的官网展示头像")
+    public ApiResponse<ProfileDtos.AvatarUploadResponse> uploadConsultantAvatar(@RequestPart("file") MultipartFile file,
+                                                                                 @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(service.uploadConsultantAvatar(file, principal));
     }
 
     @PostMapping("/consultant/qr")
