@@ -27,6 +27,14 @@ public class ProfileController {
         return ApiResponse.ok(service.me(principal));
     }
 
+    @PutMapping("/consultant/public-profile")
+    @PreAuthorize("hasRole('CONSULTANT')")
+    @Operation(summary = "顾问编辑官网展示个人简介")
+    public ApiResponse<ProfileDtos.MeResponse> updateConsultantPublicProfile(@RequestBody ProfileDtos.ConsultantPublicProfileUpdateRequest request,
+                                                                               @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(service.updateConsultantPublicProfile(request, principal));
+    }
+
     @PostMapping("/consultant/qr")
     @PreAuthorize("hasRole('CONSULTANT')")
     @Operation(summary = "顾问上传自己的企业微信二维码")
@@ -73,5 +81,11 @@ public class ProfileController {
                                                                  @RequestBody(required = false) ProfileDtos.ReviewRequest request,
                                                                  @AuthenticationPrincipal UserPrincipal principal) {
         return ApiResponse.ok(service.rejectRegionChange(id, request, principal));
+    }
+
+    @GetMapping("/../public/consultants")
+    @Operation(summary = "官网公开顾问展示列表")
+    public ApiResponse<List<ProfileDtos.PublicConsultantCardResponse>> publicConsultants() {
+        return ApiResponse.ok(service.publicConsultants());
     }
 }
