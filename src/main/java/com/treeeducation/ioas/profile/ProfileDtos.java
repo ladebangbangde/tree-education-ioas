@@ -49,6 +49,8 @@ public final class ProfileDtos {
 
     public record QrUploadResponse(String bucketName, String objectKey, String publicUrl, Long taskId) {}
 
+    public record AvatarUploadResponse(String bucketName, String objectKey, String publicUrl) {}
+
     public record PublicConsultantResponse(Long userId, String name, String regionCode, String regionName,
                                            String publicTitle, String publicBio, String avatarUrl, String qrUrl) {
         public static PublicConsultantResponse of(OperatorProfile p, String regionCode, String regionName) {
