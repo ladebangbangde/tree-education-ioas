@@ -27,6 +27,8 @@ public class ConsultantRegionAssignment {
     @Column(nullable = false)
     private Integer priority = 100;
     @Column(nullable = false)
+    private Integer otherAssignCount = 0;
+    @Column(nullable = false)
     private Boolean enabled = true;
     @Column(nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
@@ -45,6 +47,8 @@ public class ConsultantRegionAssignment {
     public void setRegionName(String regionName) { this.regionName = regionName; }
     public Integer getPriority() { return priority; }
     public void setPriority(Integer priority) { this.priority = priority; }
+    public Integer getOtherAssignCount() { return otherAssignCount == null ? 0 : otherAssignCount; }
+    public void setOtherAssignCount(Integer otherAssignCount) { this.otherAssignCount = otherAssignCount == null ? 0 : otherAssignCount; }
     public Boolean getEnabled() { return enabled; }
     public void setEnabled(Boolean enabled) { this.enabled = enabled; }
     public Instant getCreatedAt() { return createdAt; }
