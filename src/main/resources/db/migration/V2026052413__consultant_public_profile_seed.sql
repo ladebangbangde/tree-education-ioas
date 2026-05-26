@@ -2,25 +2,7 @@
 -- Final region ownership:
 -- Jora -> Europe, Christine -> UK, Irene -> Australia, Dango -> US.
 
-DELIMITER $$
-
-CREATE PROCEDURE add_consultant_avatar_column_if_missing()
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'operator_profile'
-          AND COLUMN_NAME = 'consultant_avatar_public_url'
-    ) THEN
-        ALTER TABLE operator_profile ADD COLUMN consultant_avatar_public_url VARCHAR(1000) NULL AFTER consultant_qr_public_url;
-    END IF;
-END$$
-
-DELIMITER ;
-
-CALL add_consultant_avatar_column_if_missing();
-DROP PROCEDURE add_consultant_avatar_column_if_missing;
+ALTER TABLE operator_profile ADD COLUMN consultant_avatar_public_url VARCHAR(1000) NULL AFTER consultant_qr_public_url;
 
 UPDATE operator_profile p
 JOIN sys_user u ON u.id = p.user_id
