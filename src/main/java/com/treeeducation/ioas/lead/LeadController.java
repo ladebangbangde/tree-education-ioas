@@ -81,7 +81,7 @@ public class LeadController {
         if (p != null && "SUPER_ADMIN".equalsIgnoreCase(p.role())) return;
         boolean archived = lead.getConvertedStudentId() != null || lead.getConvertedAt() != null || lead.getStatus() == LeadStatus.converted;
         if (archived) {
-            throw BusinessException.badRequest("该线索已生成学生档案并归档，线索栏目只允许查看，请到学生档案中维护后续信息");
+            throw BusinessException.badRequest("该线索已生成客户档案并归档，线索栏目只允许查看，请到客户档案中维护后续信息");
         }
     }
 }
