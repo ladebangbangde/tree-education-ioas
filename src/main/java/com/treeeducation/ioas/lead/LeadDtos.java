@@ -22,10 +22,11 @@ public final class LeadDtos {
                                          String intentionRegionName,
                                          @NotBlank String budget,
                                          String remark,
-                                         String source) {}
+                                         String source,
+                                         LeadRole leadRole) {}
 
     @Schema(description = "创建线索请求")
-    public record CreateRequest(@NotNull Long relatedPackageId, String sourceType, Long operatorId,
+    public record CreateRequest(@NotNull Long relatedPackageId, String sourceType, LeadRole leadRole, Long operatorId,
                                 @NotBlank String studentName, String phone, String wechat, String sourceChannel,
                                 String targetCountry, String targetMajor, String budget, String degreeLevel,
                                 LeadStatus status, Long assignedTo, String assignedToName, String remark) {}
@@ -36,10 +37,10 @@ public final class LeadDtos {
     @Schema(description = "更新线索请求")
     public record UpdateRequest(String studentName, String phone, String wechat, String targetCountry,
                                 String targetMajor, String budget, String degreeLevel, String remark,
-                                Long assignedTo, String assignedToName, LeadStatus status) {}
+                                Long assignedTo, String assignedToName, LeadStatus status, LeadRole leadRole) {}
 
     @Schema(description = "线索响应")
-    public record Response(Long id, String sourceType, Long relatedPackageId, Long operatorId, String leadNo,
+    public record Response(Long id, String sourceType, LeadRole leadRole, Long relatedPackageId, Long operatorId, String leadNo,
                            String studentName, String phone, String wechat, String sourceChannel, String sourcePage,
                            String targetCountry, String targetMajor, String budget, String degreeLevel,
                            Long intentionRegionId, String intentionRegionCode, String intentionRegionName,
@@ -56,7 +57,7 @@ public final class LeadDtos {
 
     public static Response of(Lead l, String packageName, ProfileDtos.PublicConsultantResponse consultant) {
         boolean archived = l.getConvertedStudentId() != null || l.getConvertedAt() != null || l.getStatus() == LeadStatus.converted;
-        return new Response(l.getId(), l.getSourceType(), l.getRelatedPackageId(), l.getOperatorId(), l.getLeadNo(),
+        return new Response(l.getId(), l.getSourceType(), l.getLeadRole(), l.getRelatedPackageId(), l.getOperatorId(), l.getLeadNo(),
                 l.getStudentName(), l.getPhone(), l.getWechat(), l.getSourceChannel(), l.getSourcePage(),
                 l.getTargetCountry(), l.getTargetMajor(), l.getBudget(), l.getDegreeLevel(),
                 l.getIntentionRegionId(), l.getIntentionRegionCode(), l.getIntentionRegionName(),
