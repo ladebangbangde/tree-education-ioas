@@ -2,6 +2,7 @@ package com.treeeducation.ioas.lead;
 
 import com.treeeducation.ioas.auth.UserPrincipal;
 import com.treeeducation.ioas.common.ApiResponse;
+import com.treeeducation.ioas.common.BusinessException;
 import com.treeeducation.ioas.common.PageResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -53,6 +54,7 @@ public class LeadController {
     @Operation(summary = "更新线索状态")
     public ApiResponse<LeadDtos.Response> status(@PathVariable Long id, @Valid @RequestBody LeadDtos.StatusRequest r,
                                                   @AuthenticationPrincipal UserPrincipal p) {
+        assertLeadEditableFromLeadCenter(id, p);
         Lead lead = service.updateStatus(id, r.status(), p);
         return ApiResponse.ok(service.detailForUser(lead.getId(), p));
     }
@@ -61,6 +63,7 @@ public class LeadController {
     @Operation(summary = "更新线索备注、分配人和状态")
     public ApiResponse<LeadDtos.Response> update(@PathVariable Long id, @RequestBody LeadDtos.UpdateRequest r,
                                                  @AuthenticationPrincipal UserPrincipal p) {
+        assertLeadEditableFromLeadCenter(id, p);
         Lead lead = service.update(id, r, p);
         return ApiResponse.ok(service.detailForUser(lead.getId(), p));
     }
@@ -68,7 +71,17 @@ public class LeadController {
     @DeleteMapping("/{id}")
     @Operation(summary = "删除线索")
     public ApiResponse<Map<String, Object>> delete(@PathVariable Long id, @AuthenticationPrincipal UserPrincipal p) {
+        assertLeadEditableFromLeadCenter(id, p);
         service.delete(id, p);
         return ApiResponse.ok(Map.of("deleted", true, "id", id));
+    }
+
+    private void assertLeadEditableFromLeadCenter(Long id, UserPrincipal p) {
+        Lead lead = service.get(id);
+        if (p != null && "SUPER_ADMIN".equalsIgnoreCase(p.role())) return;
+        boolean archived = lead.getConvertedStudentId() != null || lead.getConvertedAt() != null || lead.getStatus() == LeadStatus.converted;
+        if (archived) {
+            throw BusinessException.badRequest("该线索已生成学生档案并归档，线索栏目只允许查看，请到学生档案中维护后续信息");
+        }
     }
 }
