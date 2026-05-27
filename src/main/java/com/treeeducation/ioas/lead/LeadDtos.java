@@ -45,6 +45,8 @@ public final class LeadDtos {
                            Long intentionRegionId, String intentionRegionCode, String intentionRegionName,
                            String assignMode, String assignReason, Instant assignedAt, String notifyStatus,
                            LeadStatus status, Long assignedTo, String assignedToName, String relatedPackageName,
+                           Long convertedStudentId, Instant convertedAt, Long convertedBy,
+                           Boolean archived, Boolean mutable,
                            Instant createdAt, Instant updatedAt, String remark,
                            ProfileDtos.PublicConsultantResponse assignedConsultant) {}
 
@@ -53,12 +55,15 @@ public final class LeadDtos {
     }
 
     public static Response of(Lead l, String packageName, ProfileDtos.PublicConsultantResponse consultant) {
+        boolean archived = l.getConvertedStudentId() != null || l.getConvertedAt() != null || l.getStatus() == LeadStatus.converted;
         return new Response(l.getId(), l.getSourceType(), l.getRelatedPackageId(), l.getOperatorId(), l.getLeadNo(),
                 l.getStudentName(), l.getPhone(), l.getWechat(), l.getSourceChannel(), l.getSourcePage(),
                 l.getTargetCountry(), l.getTargetMajor(), l.getBudget(), l.getDegreeLevel(),
                 l.getIntentionRegionId(), l.getIntentionRegionCode(), l.getIntentionRegionName(),
                 l.getAssignMode(), l.getAssignReason(), l.getAssignedAt(), l.getNotifyStatus(),
                 l.getStatus(), l.getAssignedTo(), l.getAssignedToName(), packageName,
+                l.getConvertedStudentId(), l.getConvertedAt(), l.getConvertedBy(),
+                archived, !archived,
                 l.getCreatedAt(), l.getUpdatedAt(), l.getRemark(), consultant);
     }
 }
