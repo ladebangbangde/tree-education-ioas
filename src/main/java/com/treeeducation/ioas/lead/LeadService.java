@@ -54,6 +54,7 @@ public class LeadService {
         Lead l = new Lead();
         l.setLeadNo("LD" + System.currentTimeMillis());
         l.setSourceType(r.sourceType() == null ? "content_package" : r.sourceType());
+        l.setLeadRole(r.leadRole());
         l.setRelatedPackageId(cp.getId());
         l.setOperatorId(r.operatorId() == null ? cp.getOperatorId() : r.operatorId());
         l.setStudentName(r.studentName());
@@ -93,6 +94,7 @@ public class LeadService {
         Lead lead = new Lead();
         lead.setLeadNo("WEB" + System.currentTimeMillis());
         lead.setSourceType("official_website");
+        lead.setLeadRole(r.leadRole());
         lead.setStudentName(clean(r.name()));
         lead.setPhone(clean(r.phone()));
         lead.setWechat(clean(r.wechat()));
@@ -136,6 +138,7 @@ public class LeadService {
                     "CONSULTANT",
                     "官网1分钟咨询新线索",
                     "你收到一条官网1分钟咨询线索：" + safe(lead.getStudentName())
+                            + "，客资类型：" + leadRoleText(lead.getLeadRole())
                             + "，意向区域：" + safe(lead.getIntentionRegionName())
                             + "，电话：" + safe(lead.getPhone())
                             + "。请尽快进入线索中心跟进。",
@@ -148,7 +151,7 @@ public class LeadService {
         }
 
         audit(AuditAction.create_lead, "lead", lead.getId(), 0L,
-                "官网1分钟咨询提交：" + lead.getStudentName() + "，意向区域=" + safe(lead.getIntentionRegionName()) + "，顾问=" + safe(lead.getAssignedToName()));
+                "官网1分钟咨询提交：" + lead.getStudentName() + "，客资类型=" + leadRoleText(lead.getLeadRole()) + "，意向区域=" + safe(lead.getIntentionRegionName()) + "，顾问=" + safe(lead.getAssignedToName()));
         return lead;
     }
 
@@ -207,6 +210,7 @@ public class LeadService {
         if (!"CONSULTANT".equalsIgnoreCase(p.role())) {
             if (r.assignedTo() != null) l.setAssignedTo(r.assignedTo());
             if (r.assignedToName() != null) l.setAssignedToName(r.assignedToName());
+            if (r.leadRole() != null) l.setLeadRole(r.leadRole());
         }
         if (r.status() != null) l.setStatus(r.status());
         l.setUpdatedAt(Instant.now());
@@ -307,6 +311,7 @@ public class LeadService {
 
     private String buildOfficialWebsiteRemark(LeadDtos.OfficialWebsiteRequest r, String userAgent, String regionName) {
         StringBuilder remark = new StringBuilder();
+        appendLine(remark, "客资类型", leadRoleText(r.leadRole()));
         appendLine(remark, "年龄", clean(r.age()));
         appendLine(remark, "所在城市", clean(r.city()));
         appendLine(remark, "学历", clean(r.education()));
@@ -316,6 +321,10 @@ public class LeadService {
         appendLine(remark, "官网备注", clean(r.remark()));
         appendLine(remark, "浏览器", clean(userAgent));
         return remark.toString();
+    }
+
+    private String leadRoleText(LeadRole role) {
+        return role == LeadRole.worker ? "劳工客资" : "学生客资";
     }
 
     private void appendLine(StringBuilder builder, String label, String value) {
