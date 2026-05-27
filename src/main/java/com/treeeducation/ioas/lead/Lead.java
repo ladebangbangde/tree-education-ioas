@@ -11,6 +11,8 @@ public class Lead {
     private Long id;
     @Column(length = 40) private String leadNo;
     @Column(length = 40) private String sourceType;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30) private LeadRole leadRole = LeadRole.student;
     private Long relatedPackageId;
     private Long operatorId;
     @Column(nullable = false, length = 120) private String studentName;
@@ -46,6 +48,8 @@ public class Lead {
     public void setLeadNo(String leadNo) { this.leadNo = leadNo; }
     public String getSourceType() { return sourceType; }
     public void setSourceType(String sourceType) { this.sourceType = sourceType; }
+    public LeadRole getLeadRole() { return leadRole; }
+    public void setLeadRole(LeadRole leadRole) { this.leadRole = leadRole == null ? LeadRole.student : leadRole; }
     public Long getRelatedPackageId() { return relatedPackageId; }
     public void setRelatedPackageId(Long relatedPackageId) { this.relatedPackageId = relatedPackageId; }
     public Long getOperatorId() { return operatorId; }
