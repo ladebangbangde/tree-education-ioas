@@ -1,16 +1,18 @@
 package com.treeeducation.ioas.customertracking;
 
 import com.treeeducation.ioas.common.ApiResponse;
-import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
-@RequiredArgsConstructor
 @RequestMapping("/api/customer-trackings")
 public class CustomerTrackingController {
     private final CustomerTrackingService service;
+
+    public CustomerTrackingController(CustomerTrackingService service) {
+        this.service = service;
+    }
 
     @GetMapping
     public ApiResponse<List<CustomerTrackingDtos.Summary>> list(@RequestParam(required = false) String keyword) {
