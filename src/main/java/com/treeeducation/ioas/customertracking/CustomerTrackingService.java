@@ -6,20 +6,30 @@ import com.treeeducation.ioas.lead.LeadRepository;
 import com.treeeducation.ioas.student.StudentProfile;
 import com.treeeducation.ioas.student.StudentProfileRepository;
 import com.treeeducation.ioas.student.StudentProfileStatus;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.*;
 
 @Service
-@RequiredArgsConstructor
 public class CustomerTrackingService {
     private final StudentProfileRepository studentRepository;
     private final LeadRepository leadRepository;
     private final ApplicationFlowRepository flowRepository;
     private final ApplicationFlowStepRepository stepRepository;
     private final ApplicationFlowAttachmentRepository attachmentRepository;
+
+    public CustomerTrackingService(StudentProfileRepository studentRepository,
+                                   LeadRepository leadRepository,
+                                   ApplicationFlowRepository flowRepository,
+                                   ApplicationFlowStepRepository stepRepository,
+                                   ApplicationFlowAttachmentRepository attachmentRepository) {
+        this.studentRepository = studentRepository;
+        this.leadRepository = leadRepository;
+        this.flowRepository = flowRepository;
+        this.stepRepository = stepRepository;
+        this.attachmentRepository = attachmentRepository;
+    }
 
     public List<CustomerTrackingDtos.Summary> list(String keyword) {
         String k = keyword == null ? "" : keyword.trim();
@@ -32,7 +42,7 @@ public class CustomerTrackingService {
 
     public CustomerTrackingDtos.Detail detail(Long customerId) {
         StudentProfile customer = studentRepository.findById(customerId).orElseThrow();
-        Optional<Lead> lead = leadRepository.findById(customer.getSourceLeadId());
+        Optional<Lead> lead = Optional.ofNullable(customer.getSourceLeadId()).flatMap(leadRepository::findById);
         Optional<ApplicationFlow> flowOpt = flowRepository.findByStudentProfileId(customerId);
         List<CustomerTrackingDtos.Event> events = new ArrayList<>();
         List<CustomerTrackingDtos.FlowNode> graph = new ArrayList<>();
@@ -53,7 +63,7 @@ public class CustomerTrackingService {
         graph.add(new CustomerTrackingDtos.FlowNode("customer", "客户档案", "process", "COMPLETED", "客户编号：" + blank(customer.getStudentNo(), "-"), customer.getCreatedAt()));
 
         flowOpt.ifPresent(flow -> {
-            graph.add(new CustomerTrackingDtos.FlowNode("flow", "申请流程", "process", flow.getCompleted() ? "COMPLETED" : "IN_PROGRESS", "进度：" + nvl(flow.getProgressPercent()) + "%", flow.getUpdatedAt()));
+            graph.add(new CustomerTrackingDtos.FlowNode("flow", "申请流程", "process", Boolean.TRUE.equals(flow.getCompleted()) ? "COMPLETED" : "IN_PROGRESS", "进度：" + nvl(flow.getProgressPercent()) + "%", flow.getUpdatedAt()));
             List<ApplicationFlowStep> steps = stepRepository.findByFlowIdOrderByOrderNoAsc(flow.getId());
             for (ApplicationFlowStep step : steps) {
                 List<ApplicationFlowAttachment> files = attachmentRepository.findByStepIdAndDeletedFalseOrderByCreatedAtDesc(step.getId());
@@ -72,7 +82,7 @@ public class CustomerTrackingService {
     }
 
     public CustomerTrackingDtos.Summary summary(StudentProfile customer) {
-        Optional<Lead> lead = leadRepository.findById(customer.getSourceLeadId());
+        Optional<Lead> lead = Optional.ofNullable(customer.getSourceLeadId()).flatMap(leadRepository::findById);
         Optional<ApplicationFlow> flowOpt = flowRepository.findByStudentProfileId(customer.getId());
         ApplicationFlow flow = flowOpt.orElse(null);
         String currentStepName = null;
