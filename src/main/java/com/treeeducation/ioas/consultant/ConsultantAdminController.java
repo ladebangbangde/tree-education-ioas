@@ -2,6 +2,7 @@ package com.treeeducation.ioas.consultant;
 
 import com.treeeducation.ioas.common.ApiResponse;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -9,6 +10,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/settings/consultants")
+@PreAuthorize("hasRole('SUPER_ADMIN')")
 public class ConsultantAdminController {
     private final ConsultantAdminService service;
 
