@@ -12,8 +12,8 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/public/consultants")
-@Tag(name = "Public Consultants", description = "官网公开顾问展示接口")
+@RequestMapping("/api/v1/public/legacy-consultants")
+@Tag(name = "Public Consultants Legacy", description = "旧官网公开顾问展示接口，保留兼容但不占用正式路径")
 public class PublicConsultantController {
     private final ProfileService profileService;
 
@@ -22,7 +22,7 @@ public class PublicConsultantController {
     }
 
     @GetMapping
-    @Operation(summary = "官网公开顾问展示列表")
+    @Operation(summary = "旧版官网公开顾问展示列表")
     public ApiResponse<List<ProfileDtos.PublicConsultantCardResponse>> list() {
         return ApiResponse.ok(profileService.publicConsultants());
     }
