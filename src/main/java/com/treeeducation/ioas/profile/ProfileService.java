@@ -292,7 +292,8 @@ public class ProfileService {
         consultantScopes.deleteAll(consultantScopes.findAll().stream().filter(s -> Objects.equals(s.getConsultantId(), cp.getId())).toList());
         List<String> codes = splitCsv(row.getRequestedRegionCodes());
         for (int i = 0; i < codes.size(); i++) {
-            ConsultantRegion region = consultantRegions.activeByCode(codes.get(i)).orElseGet(() -> createConsultantRegion(codes.get(i)));
+            String code = codes.get(i);
+            ConsultantRegion region = consultantRegions.activeByCode(code).orElseGet(() -> createConsultantRegion(code));
             ConsultantScope scope = new ConsultantScope();
             scope.setConsultantId(cp.getId());
             scope.setRegionId(region.getId());
