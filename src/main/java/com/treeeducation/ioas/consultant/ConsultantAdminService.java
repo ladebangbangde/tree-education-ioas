@@ -12,12 +12,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
 public class ConsultantAdminService {
+    private static final SecureRandom RANDOM = new SecureRandom();
     private final UserRepository users;
     private final OperatorProfileRepository operatorProfiles;
     private final ConsultantProfileRepository consultants;
@@ -45,13 +47,13 @@ public class ConsultantAdminService {
     public List<ConsultantAdminDtos.Response> list() {
         Map<Long, User> userMap = users.findAll().stream().collect(Collectors.toMap(User::getId, u -> u));
         Map<Long, OperatorProfile> operatorMap = operatorProfiles.findAll().stream().collect(Collectors.toMap(OperatorProfile::getUserId, p -> p, (a, b) -> a));
-        return consultants.managementList().stream().map(c -> buildResponse(c, userMap.get(c.getUserId()), operatorMap.get(c.getUserId()))).toList();
+        return consultants.managementList().stream().map(c -> buildResponse(c, userMap.get(c.getUserId()), operatorMap.get(c.getUserId()), null)).toList();
     }
 
     public List<ConsultantAdminDtos.Response> publicList() {
         Map<Long, User> userMap = users.findAll().stream().collect(Collectors.toMap(User::getId, u -> u));
         Map<Long, OperatorProfile> operatorMap = operatorProfiles.findAll().stream().collect(Collectors.toMap(OperatorProfile::getUserId, p -> p, (a, b) -> a));
-        return consultants.publicList().stream().map(c -> buildResponse(c, userMap.get(c.getUserId()), operatorMap.get(c.getUserId()))).toList();
+        return consultants.publicList().stream().map(c -> buildResponse(c, userMap.get(c.getUserId()), operatorMap.get(c.getUserId()), null)).toList();
     }
 
     @Transactional
@@ -60,13 +62,14 @@ public class ConsultantAdminService {
         if (req.regionCodes() == null || req.regionCodes().isEmpty()) throw BusinessException.badRequest("请至少选择一个负责区域");
 
         String username = nextUsername(displayName);
+        String setupCode = nextSetupCode();
         User user = new User();
         user.setUsername(username);
         user.setDisplayName(displayName);
         user.setDepartment("顾问团队");
         user.setRoleCode("CONSULTANT");
         user.setStatus(UserStatus.ACTIVE);
-        user.setPasswordHash(passwordEncoder.encode(UUID.randomUUID().toString()));
+        user.setPasswordHash(passwordEncoder.encode(setupCode));
         user.setTokenVersion(0);
         user = users.save(user);
 
@@ -96,7 +99,7 @@ public class ConsultantAdminService {
         operatorProfiles.save(operatorProfile);
 
         replaceRegions(profile, req.regionCodes());
-        return buildResponse(profile, user, operatorProfile);
+        return buildResponse(profile, user, operatorProfile, setupCode);
     }
 
     @Transactional
@@ -158,7 +161,7 @@ public class ConsultantAdminService {
         return regions.save(region);
     }
 
-    private ConsultantAdminDtos.Response buildResponse(ConsultantProfile c, User user, OperatorProfile operatorProfile) {
+    private ConsultantAdminDtos.Response buildResponse(ConsultantProfile c, User user, OperatorProfile operatorProfile, String setupCode) {
         Map<Long, ConsultantRegion> regionMap = regions.findAll().stream().collect(Collectors.toMap(ConsultantRegion::getId, r -> r));
         List<ConsultantAdminDtos.RegionView> regionViews = scopes.findAll().stream()
                 .filter(s -> Objects.equals(s.getConsultantId(), c.getId()) && Boolean.TRUE.equals(s.getEnabled()))
@@ -173,7 +176,7 @@ public class ConsultantAdminService {
         String publicBio = operatorProfile != null && operatorProfile.getPublicBio() != null ? operatorProfile.getPublicBio() : c.getPublicBio();
 
         return new ConsultantAdminDtos.Response(
-                c.getId(), c.getUserId(), user == null ? null : user.getUsername(), c.getConsultantName(), avatarUrl,
+                c.getId(), c.getUserId(), user == null ? null : user.getUsername(), setupCode, c.getConsultantName(), avatarUrl,
                 publicTitle, publicBio, regionViews, c.getEnabled(), c.getAssignEnabled(), c.getDisplayOnOfficial(),
                 c.getMaxDailyLeads(), c.getCurrentDailyLeads(), c.getSortOrder()
         );
@@ -193,6 +196,11 @@ public class ConsultantAdminService {
             candidate = base + seq++;
         }
         return candidate;
+    }
+
+    private String nextSetupCode() {
+        int number = 100000 + RANDOM.nextInt(900000);
+        return "Tree@" + number;
     }
 
     private String required(String value, String message) {
