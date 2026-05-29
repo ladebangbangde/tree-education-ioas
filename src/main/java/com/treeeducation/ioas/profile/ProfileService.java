@@ -2,6 +2,7 @@ package com.treeeducation.ioas.profile;
 
 import com.treeeducation.ioas.auth.UserPrincipal;
 import com.treeeducation.ioas.common.BusinessException;
+import com.treeeducation.ioas.consultant.*;
 import com.treeeducation.ioas.notification.NotificationDtos;
 import com.treeeducation.ioas.notification.NotificationService;
 import com.treeeducation.ioas.storage.ObjectStorageService;
@@ -24,9 +25,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class ProfileService {
@@ -36,6 +36,9 @@ public class ProfileService {
     private final OperatorProfileRepository profiles;
     private final ConsultantRegionAssignmentRepository assignments;
     private final ConsultantRegionChangeRequestRepository changeRequests;
+    private final ConsultantProfileRepository consultantProfiles;
+    private final ConsultantRegionRepository consultantRegions;
+    private final ConsultantScopeRepository consultantScopes;
     private final ObjectStorageService storage;
     private final TaskRepository tasks;
     private final NotificationService notifications;
@@ -43,12 +46,18 @@ public class ProfileService {
     public ProfileService(UserRepository users, OperatorProfileRepository profiles,
                           ConsultantRegionAssignmentRepository assignments,
                           ConsultantRegionChangeRequestRepository changeRequests,
+                          ConsultantProfileRepository consultantProfiles,
+                          ConsultantRegionRepository consultantRegions,
+                          ConsultantScopeRepository consultantScopes,
                           ObjectStorageService storage, TaskRepository tasks,
                           NotificationService notifications) {
         this.users = users;
         this.profiles = profiles;
         this.assignments = assignments;
         this.changeRequests = changeRequests;
+        this.consultantProfiles = consultantProfiles;
+        this.consultantRegions = consultantRegions;
+        this.consultantScopes = consultantScopes;
         this.storage = storage;
         this.tasks = tasks;
         this.notifications = notifications;
@@ -72,6 +81,11 @@ public class ProfileService {
             throw BusinessException.badRequest("个人简介最多只能填写" + PUBLIC_BIO_MAX_LENGTH + "个字");
         }
         profile.setPublicBio(publicBio);
+        consultantProfiles.findByUserId(user.getId()).ifPresent(cp -> {
+            cp.setPublicBio(publicBio);
+            cp.setUpdatedAt(Instant.now());
+            consultantProfiles.save(cp);
+        });
         return ProfileDtos.MeResponse.of(user, profile);
     }
 
@@ -88,6 +102,11 @@ public class ProfileService {
         String prefix = "consultant/avatar/" + today.getYear() + "/" + String.format("%02d", today.getMonthValue()) + "/" + String.format("%02d", today.getDayOfMonth()) + "/" + safe(profile.getName());
         StoredObject object = storage.put(prefix, file);
         profile.setConsultantAvatarPublicUrl(object.previewUrl());
+        consultantProfiles.findByUserId(user.getId()).ifPresent(cp -> {
+            cp.setAvatarUrl(object.previewUrl());
+            cp.setUpdatedAt(Instant.now());
+            consultantProfiles.save(cp);
+        });
 
         notifications.sendToUser(new NotificationDtos.SendRequest(user.getId(), "CONSULTANT", "官网头像上传完成",
                 "你的官网展示头像已上传成功，官网顾问团队区域会使用这张头像。",
@@ -155,8 +174,8 @@ public class ProfileService {
         row.setConsultantName(profile.getName());
         row.setCurrentRegionCodes(profile.getSpecialityRegionCodes());
         row.setCurrentRegionNames(profile.getSpecialityRegionNames());
-        row.setRequestedRegionCodes(request.requestedRegionCodes());
-        row.setRequestedRegionNames(request.requestedRegionNames());
+        row.setRequestedRegionCodes(normalizeRegionCodesCsv(request.requestedRegionCodes()));
+        row.setRequestedRegionNames(normalizeRegionNamesCsv(row.getRequestedRegionCodes(), request.requestedRegionNames()));
         row.setReason(request.reason());
         row = changeRequests.save(row);
 
@@ -198,6 +217,7 @@ public class ProfileService {
         profile.setSpecialityRegionNames(row.getRequestedRegionNames());
         profile.setPublicTitle(firstCsvValue(row.getRequestedRegionNames(), "留学") + "留学规划顾问");
         syncApprovedRegionAssignment(profile, row);
+        syncConsultantModule(profile, row);
         markRegionChangeTasks(profile, "APPROVED");
         return ProfileDtos.RegionChangeResponse.of(row);
     }
@@ -244,24 +264,54 @@ public class ProfileService {
     }
 
     private void syncApprovedRegionAssignment(OperatorProfile profile, ConsultantRegionChangeRequest row) {
-        String regionCode = firstCsvValue(row.getRequestedRegionCodes(), "OTHER");
-        String regionName = firstCsvValue(row.getRequestedRegionNames(), "其他区域");
+        List<String> codes = splitCsv(row.getRequestedRegionCodes());
+        List<String> names = splitCsv(row.getRequestedRegionNames());
         List<ConsultantRegionAssignment> rows = assignments.findByConsultantUserIdOrderByPriorityAscIdAsc(profile.getUserId());
-        if (rows.isEmpty()) {
-            return;
+        assignments.deleteAll(rows);
+        for (int i = 0; i < codes.size(); i++) {
+            ConsultantRegionAssignment item = new ConsultantRegionAssignment();
+            item.setConsultantProfileId(profile.getId());
+            item.setConsultantUserId(profile.getUserId());
+            item.setRegionCode(codes.get(i));
+            item.setRegionName(i < names.size() ? names.get(i) : regionName(codes.get(i)));
+            item.setPriority((i + 1) * 10);
+            item.setEnabled(true);
+            assignments.save(item);
         }
-        ConsultantRegionAssignment primary = rows.get(0);
-        primary.setConsultantProfileId(profile.getId());
-        primary.setConsultantUserId(profile.getUserId());
-        primary.setRegionCode(regionCode);
-        primary.setRegionName(regionName);
-        primary.setEnabled(true);
-        assignments.save(primary);
-        for (int i = 1; i < rows.size(); i++) {
-            ConsultantRegionAssignment extra = rows.get(i);
-            extra.setEnabled(false);
-            assignments.save(extra);
+    }
+
+    private void syncConsultantModule(OperatorProfile profile, ConsultantRegionChangeRequest row) {
+        ConsultantProfile cp = consultantProfiles.findByUserId(profile.getUserId()).orElse(null);
+        if (cp == null) return;
+        cp.setPublicTitle(profile.getPublicTitle());
+        cp.setPublicBio(profile.getPublicBio());
+        cp.setAvatarUrl(profile.getConsultantAvatarPublicUrl());
+        cp.setUpdatedAt(Instant.now());
+        consultantProfiles.save(cp);
+
+        consultantScopes.deleteAll(consultantScopes.findAll().stream().filter(s -> Objects.equals(s.getConsultantId(), cp.getId())).toList());
+        List<String> codes = splitCsv(row.getRequestedRegionCodes());
+        for (int i = 0; i < codes.size(); i++) {
+            ConsultantRegion region = consultantRegions.activeByCode(codes.get(i)).orElseGet(() -> createConsultantRegion(codes.get(i)));
+            ConsultantScope scope = new ConsultantScope();
+            scope.setConsultantId(cp.getId());
+            scope.setRegionId(region.getId());
+            scope.setPriority((i + 1) * 10);
+            scope.setEnabled(true);
+            scope.setUpdatedAt(Instant.now());
+            consultantScopes.save(scope);
         }
+    }
+
+    private ConsultantRegion createConsultantRegion(String code) {
+        ConsultantRegion region = new ConsultantRegion();
+        region.setRegionCode(code);
+        region.setRegionName(regionName(code));
+        region.setRegionType("REGION");
+        region.setEnabled(true);
+        region.setSortOrder(999);
+        region.setRemark("顾问地区变更审批自动补齐");
+        return consultantRegions.save(region);
     }
 
     private void markRegionChangeTasks(OperatorProfile profile, String status) {
@@ -283,25 +333,66 @@ public class ProfileService {
         String cleaned = trim(value);
         if (cleaned == null) return defaultValue;
         String[] parts = cleaned.split(",");
-        return parts.length == 0 || parts[0].trim().isEmpty() ? defaultValue : parts[0].trim();
+        return parts.length == 0 || parts[0].isBlank() ? defaultValue : parts[0].trim();
     }
 
+    private boolean blank(String value) { return value == null || value.isBlank(); }
+    private String trim(String value) { return value == null ? null : value.trim(); }
+    private String safe(String value) { return (value == null || value.isBlank()) ? "consultant" : value.replaceAll("[^a-zA-Z0-9一-龥_-]", "_"); }
     private User currentUser(UserPrincipal principal) {
-        if (principal == null || principal.id() == null) throw BusinessException.forbidden("请先登录");
-        return users.findById(principal.id()).orElseThrow(() -> BusinessException.forbidden("登录用户不存在"));
+        if (principal == null) throw BusinessException.unauthorized("请先登录");
+        return users.findById(principal.getId()).orElseThrow(() -> BusinessException.unauthorized("登录用户不存在"));
     }
 
-    private boolean blank(String value) {
-        return value == null || value.isBlank();
+    private List<String> splitCsv(String value) {
+        if (value == null || value.isBlank()) return List.of();
+        return Arrays.stream(value.split(",")).map(String::trim).filter(s -> !s.isBlank()).toList();
     }
 
-    private String trim(String value) {
-        if (value == null) return null;
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
+    private String normalizeRegionCodesCsv(String value) {
+        return splitCsv(value).stream().map(this::normalizeRegionCode).distinct().collect(Collectors.joining(","));
     }
 
-    private String safe(String value) {
-        return value == null || value.isBlank() ? "unknown" : value.trim().replaceAll("[^a-zA-Z0-9_\\-\\u4e00-\\u9fa5]", "_");
+    private String normalizeRegionNamesCsv(String codesCsv, String fallbackNamesCsv) {
+        List<String> fallback = splitCsv(fallbackNamesCsv);
+        List<String> codes = splitCsv(codesCsv);
+        List<String> names = new ArrayList<>();
+        for (int i = 0; i < codes.size(); i++) {
+            String code = codes.get(i);
+            String fallbackName = i < fallback.size() ? fallback.get(i) : null;
+            names.add(regionName(code, fallbackName));
+        }
+        return String.join(",", names);
+    }
+
+    private String normalizeRegionCode(String value) {
+        String code = value == null ? "" : value.trim().toUpperCase();
+        return switch (code) {
+            case "AUSTRALIA", "澳洲" -> "AU";
+            case "USA", "US", "美国" -> "US";
+            case "UK", "英国" -> "UK";
+            case "EUROPE", "EU", "欧洲" -> "EU";
+            case "CANADA", "CA", "加拿大" -> "CA";
+            case "SINGAPORE", "SG", "新加坡" -> "SG";
+            case "JAPAN", "JP", "日本" -> "JP";
+            case "HONGKONG", "HONG_KONG", "HK", "中国香港" -> "HK";
+            default -> code.isBlank() ? "OTHER" : code;
+        };
+    }
+
+    private String regionName(String code) { return regionName(code, null); }
+    private String regionName(String code, String fallback) {
+        String normalized = normalizeRegionCode(code);
+        return switch (normalized) {
+            case "AU" -> "澳洲";
+            case "US" -> "美国";
+            case "UK" -> "英国";
+            case "EU" -> "欧洲";
+            case "CA" -> "加拿大";
+            case "SG" -> "新加坡";
+            case "JP" -> "日本";
+            case "HK" -> "中国香港";
+            default -> (fallback == null || fallback.isBlank()) ? normalized : fallback;
+        };
     }
 }
