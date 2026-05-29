@@ -1,49 +1,40 @@
 package com.treeeducation.ioas.consultant;
 
 import com.treeeducation.ioas.common.BusinessException;
+import com.treeeducation.ioas.system.operatorprofile.OperatorProfile;
+import com.treeeducation.ioas.system.operatorprofile.OperatorProfileRepository;
 import com.treeeducation.ioas.system.user.User;
 import com.treeeducation.ioas.system.user.UserRepository;
 import com.treeeducation.ioas.system.user.UserStatus;
-import io.minio.MinioClient;
-import io.minio.PutObjectArgs;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
 public class ConsultantAdminService {
     private final UserRepository users;
+    private final OperatorProfileRepository operatorProfiles;
     private final ConsultantProfileRepository consultants;
     private final ConsultantRegionRepository regions;
     private final ConsultantScopeRepository scopes;
     private final PasswordEncoder passwordEncoder;
-    private final MinioClient minioClient;
-
-    @Value("${ioas.storage.bucket}")
-    private String bucketName;
-    @Value("${ioas.storage.public-base-url}")
-    private String publicBaseUrl;
 
     public ConsultantAdminService(UserRepository users,
+                                  OperatorProfileRepository operatorProfiles,
                                   ConsultantProfileRepository consultants,
                                   ConsultantRegionRepository regions,
                                   ConsultantScopeRepository scopes,
-                                  PasswordEncoder passwordEncoder,
-                                  MinioClient minioClient) {
+                                  PasswordEncoder passwordEncoder) {
         this.users = users;
+        this.operatorProfiles = operatorProfiles;
         this.consultants = consultants;
         this.regions = regions;
         this.scopes = scopes;
         this.passwordEncoder = passwordEncoder;
-        this.minioClient = minioClient;
     }
 
     public List<ConsultantAdminDtos.Response> list() {
@@ -53,88 +44,79 @@ public class ConsultantAdminService {
 
     public List<ConsultantAdminDtos.Response> publicList() {
         Map<Long, User> userMap = users.findAll().stream().collect(Collectors.toMap(User::getId, u -> u));
-        return consultants.publicList().stream().map(c -> toResponse(c, userMap.get(c.getUserId()))).toList();
+        Map<Long, OperatorProfile> operatorMap = operatorProfiles.findAll().stream().collect(Collectors.toMap(OperatorProfile::getUserId, p -> p, (a, b) -> a));
+        return consultants.publicList().stream().map(c -> toPublicResponse(c, userMap.get(c.getUserId()), operatorMap.get(c.getUserId()))).toList();
     }
 
     @Transactional
     public ConsultantAdminDtos.Response create(ConsultantAdminDtos.CreateRequest req) {
-        String username = required(req.username(), "登录账号不能为空").trim();
-        if (users.findByUsername(username).isPresent()) throw BusinessException.badRequest("登录账号已存在");
         String displayName = required(req.displayName(), "顾问姓名不能为空").trim();
-        String password = required(req.password(), "初始密码不能为空");
         if (req.regionCodes() == null || req.regionCodes().isEmpty()) throw BusinessException.badRequest("请至少选择一个负责区域");
 
+        String username = nextUsername(displayName);
         User user = new User();
         user.setUsername(username);
         user.setDisplayName(displayName);
-        user.setDepartment(blankToDefault(req.teamName(), "顾问团队"));
+        user.setDepartment("顾问团队");
         user.setRoleCode("CONSULTANT");
-        user.setStatus(Boolean.FALSE.equals(req.enabled()) ? UserStatus.DISABLED : UserStatus.ACTIVE);
-        user.setPasswordHash(passwordEncoder.encode(password));
+        user.setStatus(UserStatus.ACTIVE);
+        user.setPasswordHash(passwordEncoder.encode(UUID.randomUUID().toString()));
         user.setTokenVersion(0);
         user = users.save(user);
 
         ConsultantProfile profile = new ConsultantProfile();
         profile.setUserId(user.getId());
-        applyProfile(profile, displayName, req.phone(), req.email(), req.teamName(), req.publicTitle(), req.publicBio(), req.enabled(), req.assignEnabled(), req.displayOnOfficial(), req.maxDailyLeads(), req.sortOrder());
+        profile.setConsultantName(displayName);
+        profile.setTeamName("顾问团队");
+        profile.setPublicTitle(null);
+        profile.setPublicBio(null);
+        profile.setAvatarUrl(null);
+        profile.setDisplayOnOfficial(true);
+        profile.setEnabled(true);
+        profile.setAssignEnabled(true);
+        profile.setMaxDailyLeads(30);
+        profile.setCurrentDailyLeads(0);
+        profile.setSortOrder(0);
+        profile.setUpdatedAt(Instant.now());
         profile = consultants.save(profile);
+
+        OperatorProfile operatorProfile = new OperatorProfile();
+        operatorProfile.setUserId(user.getId());
+        operatorProfile.setName(displayName);
+        operatorProfile.setTeamName("顾问团队");
+        operatorProfile.setEnabled(true);
+        operatorProfile.setSpecialityRegionCodes(String.join(",", cleanCodes(req.regionCodes())));
+        operatorProfile.setSpecialityRegionNames(cleanCodes(req.regionCodes()).stream().map(this::regionName).collect(Collectors.joining(",")));
+        operatorProfiles.save(operatorProfile);
+
         replaceRegions(profile, req.regionCodes());
         return toResponse(profile, user);
     }
 
     @Transactional
-    public ConsultantAdminDtos.Response update(Long consultantId, ConsultantAdminDtos.UpdateRequest req) {
+    public void delete(Long consultantId) {
         ConsultantProfile profile = consultants.findById(consultantId).orElseThrow(() -> BusinessException.notFound("顾问档案不存在"));
-        User user = users.findById(profile.getUserId()).orElse(null);
-        applyProfile(profile,
-                blankToDefault(req.consultantName(), profile.getConsultantName()),
-                req.phone(), req.email(), req.teamName(), req.publicTitle(), req.publicBio(),
-                req.enabled(), req.assignEnabled(), req.displayOnOfficial(), req.maxDailyLeads(), req.sortOrder());
-        profile.setUpdatedAt(Instant.now());
-        profile = consultants.save(profile);
-        if (req.regionCodes() != null) replaceRegions(profile, req.regionCodes());
-        return toResponse(profile, user);
-    }
+        Long userId = profile.getUserId();
 
-    @Transactional
-    public ConsultantAdminDtos.AvatarResponse uploadAvatar(Long consultantId, MultipartFile file) throws Exception {
-        if (file == null || file.isEmpty()) throw BusinessException.badRequest("请上传顾问头像文件");
-        ConsultantProfile profile = consultants.findById(consultantId).orElseThrow(() -> BusinessException.notFound("顾问档案不存在"));
-        String url = upload(file);
-        profile.setAvatarUrl(url);
-        profile.setUpdatedAt(Instant.now());
-        consultants.save(profile);
-        return new ConsultantAdminDtos.AvatarResponse(profile.getId(), url);
-    }
+        List<ConsultantScope> oldScopes = scopes.findAll().stream()
+                .filter(s -> Objects.equals(s.getConsultantId(), profile.getId()))
+                .toList();
+        scopes.deleteAll(oldScopes);
 
-    private void applyProfile(ConsultantProfile profile, String name, String phone, String email, String teamName,
-                              String publicTitle, String publicBio, Boolean enabled, Boolean assignEnabled,
-                              Boolean displayOnOfficial, Integer maxDailyLeads, Integer sortOrder) {
-        profile.setConsultantName(name);
-        profile.setPhone(phone);
-        profile.setEmail(email);
-        profile.setTeamName(blankToDefault(teamName, "顾问团队"));
-        profile.setPublicTitle(blankToDefault(publicTitle, profile.getTeamName() + "规划顾问"));
-        profile.setPublicBio(blankToDefault(publicBio, "资深留学规划顾问，擅长结合学生背景制定清晰可执行的申请方案。"));
-        profile.setEnabled(!Boolean.FALSE.equals(enabled));
-        profile.setAssignEnabled(!Boolean.FALSE.equals(assignEnabled));
-        profile.setDisplayOnOfficial(!Boolean.FALSE.equals(displayOnOfficial));
-        profile.setMaxDailyLeads(maxDailyLeads == null || maxDailyLeads <= 0 ? 30 : maxDailyLeads);
-        profile.setCurrentDailyLeads(profile.getCurrentDailyLeads() == null ? 0 : profile.getCurrentDailyLeads());
-        profile.setSortOrder(sortOrder == null ? 0 : sortOrder);
-        profile.setUpdatedAt(Instant.now());
+        operatorProfiles.findByUserId(userId).ifPresent(operatorProfiles::delete);
+        consultants.delete(profile);
+        users.findById(userId).ifPresent(users::delete);
     }
 
     private void replaceRegions(ConsultantProfile profile, List<String> regionCodes) {
-        List<String> codes = regionCodes.stream().filter(Objects::nonNull).map(String::trim).filter(s -> !s.isBlank()).distinct().toList();
+        List<String> codes = cleanCodes(regionCodes);
         if (codes.isEmpty()) throw BusinessException.badRequest("请至少选择一个负责区域");
         List<ConsultantScope> oldScopes = scopes.findAll().stream().filter(s -> Objects.equals(s.getConsultantId(), profile.getId())).toList();
-        oldScopes.forEach(s -> { s.setEnabled(false); s.setUpdatedAt(Instant.now()); });
-        scopes.saveAll(oldScopes);
+        scopes.deleteAll(oldScopes);
         int priority = 10;
         for (String code : codes) {
             ConsultantRegion region = regions.activeByCode(code).orElseGet(() -> createRegion(code));
-            ConsultantScope scope = oldScopes.stream().filter(s -> Objects.equals(s.getRegionId(), region.getId())).findFirst().orElseGet(ConsultantScope::new);
+            ConsultantScope scope = new ConsultantScope();
             scope.setConsultantId(profile.getId());
             scope.setRegionId(region.getId());
             scope.setEnabled(true);
@@ -157,6 +139,14 @@ public class ConsultantAdminService {
     }
 
     private ConsultantAdminDtos.Response toResponse(ConsultantProfile c, User user) {
+        return buildResponse(c, user, null);
+    }
+
+    private ConsultantAdminDtos.Response toPublicResponse(ConsultantProfile c, User user, OperatorProfile operatorProfile) {
+        return buildResponse(c, user, operatorProfile);
+    }
+
+    private ConsultantAdminDtos.Response buildResponse(ConsultantProfile c, User user, OperatorProfile operatorProfile) {
         Map<Long, ConsultantRegion> regionMap = regions.findAll().stream().collect(Collectors.toMap(ConsultantRegion::getId, r -> r));
         List<ConsultantAdminDtos.RegionView> regionViews = scopes.findAll().stream()
                 .filter(s -> Objects.equals(s.getConsultantId(), c.getId()) && Boolean.TRUE.equals(s.getEnabled()))
@@ -165,26 +155,37 @@ public class ConsultantAdminService {
                     ConsultantRegion r = regionMap.get(s.getRegionId());
                     return new ConsultantAdminDtos.RegionView(s.getRegionId(), r == null ? null : r.getRegionCode(), r == null ? null : r.getRegionName(), s.getPriority());
                 }).toList();
-        return new ConsultantAdminDtos.Response(c.getId(), c.getUserId(), user == null ? null : user.getUsername(), c.getConsultantName(), c.getPhone(), c.getEmail(), c.getTeamName(), c.getAvatarUrl(), c.getPublicTitle(), c.getPublicBio(), regionViews, c.getEnabled(), c.getAssignEnabled(), c.getDisplayOnOfficial(), c.getMaxDailyLeads(), c.getCurrentDailyLeads(), c.getSortOrder());
+
+        String avatarUrl = operatorProfile != null && operatorProfile.getConsultantAvatarPublicUrl() != null ? operatorProfile.getConsultantAvatarPublicUrl() : c.getAvatarUrl();
+        String publicTitle = operatorProfile != null && operatorProfile.getPublicTitle() != null ? operatorProfile.getPublicTitle() : c.getPublicTitle();
+        String publicBio = operatorProfile != null && operatorProfile.getPublicBio() != null ? operatorProfile.getPublicBio() : c.getPublicBio();
+
+        return new ConsultantAdminDtos.Response(
+                c.getId(), c.getUserId(), user == null ? null : user.getUsername(), c.getConsultantName(), avatarUrl,
+                publicTitle, publicBio, regionViews, c.getEnabled(), c.getAssignEnabled(), c.getDisplayOnOfficial(),
+                c.getMaxDailyLeads(), c.getCurrentDailyLeads(), c.getSortOrder()
+        );
     }
 
-    private String upload(MultipartFile file) throws Exception {
-        String originalFilename = file.getOriginalFilename();
-        String suffix = "";
-        if (originalFilename != null && originalFilename.contains(".")) suffix = originalFilename.substring(originalFilename.lastIndexOf('.'));
-        String datePath = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd"));
-        String objectKey = "consultant-avatar/" + datePath + "/" + UUID.randomUUID() + suffix;
-        minioClient.putObject(PutObjectArgs.builder().bucket(bucketName).object(objectKey).stream(file.getInputStream(), file.getSize(), -1).contentType(file.getContentType()).build());
-        return publicBaseUrl + "/" + objectKey;
+    private List<String> cleanCodes(List<String> regionCodes) {
+        if (regionCodes == null) return List.of();
+        return regionCodes.stream().filter(Objects::nonNull).map(String::trim).filter(s -> !s.isBlank()).distinct().toList();
+    }
+
+    private String nextUsername(String displayName) {
+        String base = displayName == null ? "consultant" : displayName.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", ".").replaceAll("^\\.|\\.$", "");
+        if (base.isBlank()) base = "consultant";
+        String candidate = base;
+        int seq = 1;
+        while (users.findByUsername(candidate).isPresent()) {
+            candidate = base + seq++;
+        }
+        return candidate;
     }
 
     private String required(String value, String message) {
         if (value == null || value.isBlank()) throw BusinessException.badRequest(message);
         return value;
-    }
-
-    private String blankToDefault(String value, String defaultValue) {
-        return value == null || value.isBlank() ? defaultValue : value;
     }
 
     private String regionName(String code) {
