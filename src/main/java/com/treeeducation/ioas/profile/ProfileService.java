@@ -340,8 +340,8 @@ public class ProfileService {
     private String trim(String value) { return value == null ? null : value.trim(); }
     private String safe(String value) { return (value == null || value.isBlank()) ? "consultant" : value.replaceAll("[^a-zA-Z0-9一-龥_-]", "_"); }
     private User currentUser(UserPrincipal principal) {
-        if (principal == null) throw BusinessException.unauthorized("请先登录");
-        return users.findById(principal.getId()).orElseThrow(() -> BusinessException.unauthorized("登录用户不存在"));
+        if (principal == null) throw BusinessException.forbidden("请先登录");
+        return users.findById(principal.id()).orElseThrow(() -> BusinessException.forbidden("登录用户不存在"));
     }
 
     private List<String> splitCsv(String value) {
