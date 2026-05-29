@@ -17,6 +17,7 @@ public final class ConsultantAdminDtos {
             String setupCode,
             String consultantName,
             String avatarUrl,
+            String qrUrl,
             String publicTitle,
             String publicBio,
             List<RegionView> regions,
