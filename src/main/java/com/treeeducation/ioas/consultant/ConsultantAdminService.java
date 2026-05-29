@@ -3,6 +3,7 @@ package com.treeeducation.ioas.consultant;
 import com.treeeducation.ioas.common.BusinessException;
 import com.treeeducation.ioas.system.operatorprofile.OperatorProfile;
 import com.treeeducation.ioas.system.operatorprofile.OperatorProfileRepository;
+import com.treeeducation.ioas.system.region.ConsultantRegionAssignment;
 import com.treeeducation.ioas.system.region.ConsultantRegionAssignmentRepository;
 import com.treeeducation.ioas.system.user.User;
 import com.treeeducation.ioas.system.user.UserRepository;
@@ -119,6 +120,8 @@ public class ConsultantAdminService {
         if (codes.isEmpty()) throw BusinessException.badRequest("请至少选择一个负责区域");
         List<ConsultantScope> oldScopes = scopes.findAll().stream().filter(s -> Objects.equals(s.getConsultantId(), profile.getId())).toList();
         scopes.deleteAll(oldScopes);
+        legacyAssignments.deleteAll(legacyAssignments.findByConsultantUserIdOrderByPriorityAscIdAsc(profile.getUserId()));
+
         int priority = 10;
         for (String code : codes) {
             ConsultantRegion region = regions.activeByCode(code).orElseGet(() -> createRegion(code));
@@ -129,6 +132,17 @@ public class ConsultantAdminService {
             scope.setPriority(priority);
             scope.setUpdatedAt(Instant.now());
             scopes.save(scope);
+
+            ConsultantRegionAssignment legacy = new ConsultantRegionAssignment();
+            legacy.setConsultantProfileId(profile.getId());
+            legacy.setConsultantUserId(profile.getUserId());
+            legacy.setRegionId(region.getId());
+            legacy.setRegionCode(region.getRegionCode());
+            legacy.setRegionName(region.getRegionName());
+            legacy.setPriority(priority);
+            legacy.setEnabled(true);
+            legacyAssignments.save(legacy);
+
             priority += 10;
         }
     }
