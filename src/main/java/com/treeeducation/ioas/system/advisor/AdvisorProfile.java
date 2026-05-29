@@ -19,6 +19,12 @@ public class AdvisorProfile {
     private String responsibleRegion;
     @Column(name = "location_region", nullable = false, length = 40)
     private String locationRegion;
+    @Column(name = "region_code", length = 40)
+    private String regionCode;
+    @Column(name = "public_title", length = 120)
+    private String publicTitle;
+    @Column(name = "avatar_url", length = 500)
+    private String avatarUrl;
     @Column(name = "bio", nullable = false, length = 1000)
     private String bio;
     @Column(name = "enabled", nullable = false)
@@ -40,6 +46,12 @@ public class AdvisorProfile {
     public void setResponsibleRegion(String responsibleRegion) { this.responsibleRegion = responsibleRegion; }
     public String getLocationRegion() { return locationRegion; }
     public void setLocationRegion(String locationRegion) { this.locationRegion = locationRegion; }
+    public String getRegionCode() { return regionCode; }
+    public void setRegionCode(String regionCode) { this.regionCode = regionCode; }
+    public String getPublicTitle() { return publicTitle; }
+    public void setPublicTitle(String publicTitle) { this.publicTitle = publicTitle; }
+    public String getAvatarUrl() { return avatarUrl; }
+    public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
     public String getBio() { return bio; }
     public void setBio(String bio) { this.bio = bio; }
     public Boolean getEnabled() { return enabled; }
