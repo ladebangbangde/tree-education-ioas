@@ -13,10 +13,15 @@ public class ConsultantProfile {
     @Column(length = 40) private String phone;
     @Column(length = 120) private String email;
     @Column(length = 80) private String teamName;
+    @Column(length = 500) private String avatarUrl;
+    @Column(length = 120) private String publicTitle;
+    @Column(length = 1000) private String publicBio;
+    @Column(nullable = false) private Boolean displayOnOfficial = true;
     @Column(nullable = false) private Boolean enabled = true;
     @Column(nullable = false) private Boolean assignEnabled = true;
     @Column(nullable = false) private Integer maxDailyLeads = 30;
     @Column(nullable = false) private Integer currentDailyLeads = 0;
+    @Column(nullable = false) private Integer sortOrder = 0;
     private Instant lastAssignedAt;
     @Column(nullable = false, updatable = false) private Instant createdAt = Instant.now();
     private Instant updatedAt = Instant.now();
@@ -33,6 +38,14 @@ public class ConsultantProfile {
     public void setEmail(String email) { this.email = email; }
     public String getTeamName() { return teamName; }
     public void setTeamName(String teamName) { this.teamName = teamName; }
+    public String getAvatarUrl() { return avatarUrl; }
+    public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
+    public String getPublicTitle() { return publicTitle; }
+    public void setPublicTitle(String publicTitle) { this.publicTitle = publicTitle; }
+    public String getPublicBio() { return publicBio; }
+    public void setPublicBio(String publicBio) { this.publicBio = publicBio; }
+    public Boolean getDisplayOnOfficial() { return displayOnOfficial; }
+    public void setDisplayOnOfficial(Boolean displayOnOfficial) { this.displayOnOfficial = displayOnOfficial; }
     public Boolean getEnabled() { return enabled; }
     public void setEnabled(Boolean enabled) { this.enabled = enabled; }
     public Boolean getAssignEnabled() { return assignEnabled; }
@@ -41,6 +54,8 @@ public class ConsultantProfile {
     public void setMaxDailyLeads(Integer maxDailyLeads) { this.maxDailyLeads = maxDailyLeads; }
     public Integer getCurrentDailyLeads() { return currentDailyLeads; }
     public void setCurrentDailyLeads(Integer currentDailyLeads) { this.currentDailyLeads = currentDailyLeads; }
+    public Integer getSortOrder() { return sortOrder; }
+    public void setSortOrder(Integer sortOrder) { this.sortOrder = sortOrder; }
     public Instant getLastAssignedAt() { return lastAssignedAt; }
     public void setLastAssignedAt(Instant lastAssignedAt) { this.lastAssignedAt = lastAssignedAt; }
     public Instant getCreatedAt() { return createdAt; }
