@@ -14,6 +14,7 @@ public final class ConsultantAdminDtos {
             Long id,
             Long userId,
             String username,
+            String setupCode,
             String consultantName,
             String avatarUrl,
             String publicTitle,
