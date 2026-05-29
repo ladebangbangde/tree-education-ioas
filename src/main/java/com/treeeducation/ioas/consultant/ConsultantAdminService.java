@@ -3,6 +3,7 @@ package com.treeeducation.ioas.consultant;
 import com.treeeducation.ioas.common.BusinessException;
 import com.treeeducation.ioas.system.operatorprofile.OperatorProfile;
 import com.treeeducation.ioas.system.operatorprofile.OperatorProfileRepository;
+import com.treeeducation.ioas.system.region.ConsultantRegionAssignmentRepository;
 import com.treeeducation.ioas.system.user.User;
 import com.treeeducation.ioas.system.user.UserRepository;
 import com.treeeducation.ioas.system.user.UserStatus;
@@ -21,6 +22,7 @@ public class ConsultantAdminService {
     private final ConsultantProfileRepository consultants;
     private final ConsultantRegionRepository regions;
     private final ConsultantScopeRepository scopes;
+    private final ConsultantRegionAssignmentRepository legacyAssignments;
     private final PasswordEncoder passwordEncoder;
 
     public ConsultantAdminService(UserRepository users,
@@ -28,24 +30,27 @@ public class ConsultantAdminService {
                                   ConsultantProfileRepository consultants,
                                   ConsultantRegionRepository regions,
                                   ConsultantScopeRepository scopes,
+                                  ConsultantRegionAssignmentRepository legacyAssignments,
                                   PasswordEncoder passwordEncoder) {
         this.users = users;
         this.operatorProfiles = operatorProfiles;
         this.consultants = consultants;
         this.regions = regions;
         this.scopes = scopes;
+        this.legacyAssignments = legacyAssignments;
         this.passwordEncoder = passwordEncoder;
     }
 
     public List<ConsultantAdminDtos.Response> list() {
         Map<Long, User> userMap = users.findAll().stream().collect(Collectors.toMap(User::getId, u -> u));
-        return consultants.managementList().stream().map(c -> toResponse(c, userMap.get(c.getUserId()))).toList();
+        Map<Long, OperatorProfile> operatorMap = operatorProfiles.findAll().stream().collect(Collectors.toMap(OperatorProfile::getUserId, p -> p, (a, b) -> a));
+        return consultants.managementList().stream().map(c -> buildResponse(c, userMap.get(c.getUserId()), operatorMap.get(c.getUserId()))).toList();
     }
 
     public List<ConsultantAdminDtos.Response> publicList() {
         Map<Long, User> userMap = users.findAll().stream().collect(Collectors.toMap(User::getId, u -> u));
         Map<Long, OperatorProfile> operatorMap = operatorProfiles.findAll().stream().collect(Collectors.toMap(OperatorProfile::getUserId, p -> p, (a, b) -> a));
-        return consultants.publicList().stream().map(c -> toPublicResponse(c, userMap.get(c.getUserId()), operatorMap.get(c.getUserId()))).toList();
+        return consultants.publicList().stream().map(c -> buildResponse(c, userMap.get(c.getUserId()), operatorMap.get(c.getUserId()))).toList();
     }
 
     @Transactional
@@ -90,7 +95,7 @@ public class ConsultantAdminService {
         operatorProfiles.save(operatorProfile);
 
         replaceRegions(profile, req.regionCodes());
-        return toResponse(profile, user);
+        return buildResponse(profile, user, operatorProfile);
     }
 
     @Transactional
@@ -103,6 +108,7 @@ public class ConsultantAdminService {
                 .toList();
         scopes.deleteAll(oldScopes);
 
+        legacyAssignments.deleteAll(legacyAssignments.findByConsultantUserIdOrderByPriorityAscIdAsc(userId));
         operatorProfiles.findByUserId(userId).ifPresent(operatorProfiles::delete);
         consultants.delete(profile);
         users.findById(userId).ifPresent(users::delete);
@@ -136,14 +142,6 @@ public class ConsultantAdminService {
         region.setSortOrder(999);
         region.setRemark("超管注册顾问时自动创建");
         return regions.save(region);
-    }
-
-    private ConsultantAdminDtos.Response toResponse(ConsultantProfile c, User user) {
-        return buildResponse(c, user, null);
-    }
-
-    private ConsultantAdminDtos.Response toPublicResponse(ConsultantProfile c, User user, OperatorProfile operatorProfile) {
-        return buildResponse(c, user, operatorProfile);
     }
 
     private ConsultantAdminDtos.Response buildResponse(ConsultantProfile c, User user, OperatorProfile operatorProfile) {
