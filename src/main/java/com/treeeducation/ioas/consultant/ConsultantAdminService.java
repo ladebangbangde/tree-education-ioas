@@ -172,11 +172,12 @@ public class ConsultantAdminService {
                 }).toList();
 
         String avatarUrl = operatorProfile != null && operatorProfile.getConsultantAvatarPublicUrl() != null ? operatorProfile.getConsultantAvatarPublicUrl() : c.getAvatarUrl();
+        String qrUrl = operatorProfile == null ? null : operatorProfile.getConsultantQrPublicUrl();
         String publicTitle = operatorProfile != null && operatorProfile.getPublicTitle() != null ? operatorProfile.getPublicTitle() : c.getPublicTitle();
         String publicBio = operatorProfile != null && operatorProfile.getPublicBio() != null ? operatorProfile.getPublicBio() : c.getPublicBio();
 
         return new ConsultantAdminDtos.Response(
-                c.getId(), c.getUserId(), user == null ? null : user.getUsername(), setupCode, c.getConsultantName(), avatarUrl,
+                c.getId(), c.getUserId(), user == null ? null : user.getUsername(), setupCode, c.getConsultantName(), avatarUrl, qrUrl,
                 publicTitle, publicBio, regionViews, c.getEnabled(), c.getAssignEnabled(), c.getDisplayOnOfficial(),
                 c.getMaxDailyLeads(), c.getCurrentDailyLeads(), c.getSortOrder()
         );
