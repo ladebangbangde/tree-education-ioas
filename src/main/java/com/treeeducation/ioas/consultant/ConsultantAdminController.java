@@ -1,10 +1,8 @@
 package com.treeeducation.ioas.consultant;
 
 import com.treeeducation.ioas.common.ApiResponse;
-import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -28,15 +26,9 @@ public class ConsultantAdminController {
         return ApiResponse.ok(service.create(req));
     }
 
-    @PutMapping("/{id}")
-    public ApiResponse<ConsultantAdminDtos.Response> update(@PathVariable Long id,
-                                                            @RequestBody ConsultantAdminDtos.UpdateRequest req) {
-        return ApiResponse.ok(service.update(id, req));
-    }
-
-    @PostMapping(value = "/{id}/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ApiResponse<ConsultantAdminDtos.AvatarResponse> uploadAvatar(@PathVariable Long id,
-                                                                         @RequestParam("file") MultipartFile file) throws Exception {
-        return ApiResponse.ok(service.uploadAvatar(id, file));
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable Long id) {
+        service.delete(id);
+        return ApiResponse.ok();
     }
 }
