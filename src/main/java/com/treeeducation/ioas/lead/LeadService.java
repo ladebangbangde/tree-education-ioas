@@ -22,6 +22,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.ThreadLocalRandom;
 
 /** Lead application service aligned with the frontend lead center. */
 @Service
@@ -83,13 +84,13 @@ public class LeadService {
     public Lead createOfficialWebsiteLead(LeadDtos.OfficialWebsiteRequest r, String sourcePage, String userAgent) {
         String rawDestination = clean(r.destination());
         String requestedRegionCode = clean(r.intentionRegionCode());
-        String regionCode = requestedRegionCode == null ? resolveRegionCode(rawDestination) : requestedRegionCode.toUpperCase(Locale.ROOT);
+        String regionCode = requestedRegionCode == null ? resolveRegionCode(rawDestination) : normalizeRegionCode(requestedRegionCode);
         boolean otherRegion = isOtherRegion(regionCode);
         ConsultantRegionAssignment assignment = pickRegionAssignment(regionCode).orElse(null);
         String regionName = otherRegion
                 ? resolveRegionName(regionCode, clean(r.intentionRegionName()))
                 : assignment == null ? resolveRegionName(regionCode, clean(r.intentionRegionName())) : assignment.getRegionName();
-        OperatorProfile advisor = assignment == null ? null : operators.findById(assignment.getConsultantProfileId()).orElse(null);
+        OperatorProfile advisor = assignment == null ? null : operators.findByUserId(assignment.getConsultantUserId()).orElse(null);
 
         Lead lead = new Lead();
         lead.setLeadNo("WEB" + System.currentTimeMillis());
@@ -119,10 +120,10 @@ public class LeadService {
             lead.setAssignedTo(advisor.getUserId());
             lead.setAssignedToName(advisor.getName());
             lead.setOperatorId(advisor.getId());
-            lead.setAssignMode(otherRegion ? "other_region_fair_assignment" : "consultant_region_assignment");
+            lead.setAssignMode(otherRegion ? "other_region_fair_assignment" : "consultant_region_random_assignment");
             lead.setAssignReason(otherRegion
-                    ? "其他区域公平分配：按当前启用顾问 other_assign_count 最少优先，已分配给顾问[" + safe(advisor.getName()) + "]，当前其他区域分配次数=" + assignment.getOtherAssignCount()
-                    : "按顾问区域承接表匹配：意向区域[" + safe(regionName) + "] -> 顾问[" + safe(advisor.getName()) + "]");
+                    ? "其他区域公平分配：按当前启用顾问 other_assign_count 最少优先，已分配给顾问[" + safe(advisor.getName()) + "]，当前其他区域分配次数=" + safeCount(assignment.getOtherAssignCount())
+                    : "按意向区域随机分配：意向区域[" + safe(regionName) + "] -> 顾问[" + safe(advisor.getName()) + "]");
             lead.setAssignedAt(Instant.now());
             lead.setNotifyStatus("notified");
         }
@@ -251,14 +252,17 @@ public class LeadService {
     }
 
     private Optional<ConsultantRegionAssignment> pickRegionAssignment(String regionCode) {
-        String normalized = clean(regionCode) == null ? "OTHER" : regionCode.trim().toUpperCase(Locale.ROOT);
+        String normalized = normalizeRegionCode(clean(regionCode) == null ? "OTHER" : regionCode);
         if (isOtherRegion(normalized)) {
             return pickOtherRegionAssignment();
         }
-        Optional<ConsultantRegionAssignment> matched = regionAssignments.findByRegionCodeAndEnabledTrueOrderByPriorityAscIdAsc(normalized).stream()
+        List<ConsultantRegionAssignment> candidates = regionAssignments.findByRegionCodeAndEnabledTrueOrderByPriorityAscIdAsc(normalized).stream()
                 .filter(this::isActiveAssignment)
-                .findFirst();
-        if (matched.isPresent()) return matched;
+                .toList();
+        if (!candidates.isEmpty()) {
+            int index = ThreadLocalRandom.current().nextInt(candidates.size());
+            return Optional.of(candidates.get(index));
+        }
         return pickOtherRegionAssignment();
     }
 
@@ -266,15 +270,14 @@ public class LeadService {
         Optional<ConsultantRegionAssignment> selected = regionAssignments.findEnabledForOtherRegionFairAssignmentWithLock().stream()
                 .filter(this::isActiveAssignment)
                 .findFirst();
-        selected.ifPresent(assignment -> assignment.setOtherAssignCount(assignment.getOtherAssignCount() + 1));
+        selected.ifPresent(assignment -> assignment.setOtherAssignCount(safeCount(assignment.getOtherAssignCount()) + 1));
         return selected;
     }
 
     private boolean isActiveAssignment(ConsultantRegionAssignment assignment) {
-        if (assignment == null || assignment.getConsultantProfileId() == null || assignment.getConsultantUserId() == null || !Boolean.TRUE.equals(assignment.getEnabled())) return false;
-        return operators.findById(assignment.getConsultantProfileId())
+        if (assignment == null || assignment.getConsultantUserId() == null || !Boolean.TRUE.equals(assignment.getEnabled())) return false;
+        return operators.findByUserId(assignment.getConsultantUserId())
                 .filter(this::isActiveConsultantProfile)
-                .filter(profile -> assignment.getConsultantUserId().equals(profile.getUserId()))
                 .isPresent();
     }
 
@@ -296,17 +299,43 @@ public class LeadService {
         String lower = value.toLowerCase(Locale.ROOT);
         if (lower.contains("英国") || lower.contains("uk") || lower.contains("伦敦") || lower.contains("曼彻斯特")) return "UK";
         if (lower.contains("美国") || lower.contains("usa") || lower.contains("us") || lower.contains("纽约") || lower.contains("加州") || lower.contains("波士顿")) return "US";
-        if (lower.contains("澳洲") || lower.contains("澳大利亚") || lower.contains("新西兰") || lower.contains("悉尼") || lower.contains("墨尔本")) return "AUSTRALIA";
-        if (lower.contains("欧洲") || lower.contains("法国") || lower.contains("德国") || lower.contains("荷兰") || lower.contains("瑞士") || lower.contains("爱尔兰") || lower.contains("西班牙") || lower.contains("意大利") || lower.contains("北欧")) return "EUROPE";
+        if (lower.contains("澳洲") || lower.contains("澳大利亚") || lower.contains("新西兰") || lower.contains("悉尼") || lower.contains("墨尔本")) return "AU";
+        if (lower.contains("欧洲") || lower.contains("法国") || lower.contains("德国") || lower.contains("荷兰") || lower.contains("瑞士") || lower.contains("爱尔兰") || lower.contains("西班牙") || lower.contains("意大利") || lower.contains("北欧")) return "EU";
+        if (lower.contains("加拿大") || lower.contains("canada") || lower.contains("ca")) return "CA";
+        if (lower.contains("新加坡") || lower.contains("singapore") || lower.contains("sg")) return "SG";
+        if (lower.contains("日本") || lower.contains("japan") || lower.contains("jp")) return "JP";
+        if (lower.contains("香港") || lower.contains("hong kong") || lower.contains("hk")) return "HK";
         return "OTHER";
     }
 
+    private String normalizeRegionCode(String value) {
+        String code = value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+        return switch (code) {
+            case "AUSTRALIA", "澳洲", "澳大利亚" -> "AU";
+            case "USA", "US", "美国" -> "US";
+            case "UK", "英国" -> "UK";
+            case "EUROPE", "EU", "欧洲" -> "EU";
+            case "CANADA", "CA", "加拿大" -> "CA";
+            case "SINGAPORE", "SG", "新加坡" -> "SG";
+            case "JAPAN", "JP", "日本" -> "JP";
+            case "HONGKONG", "HONG_KONG", "HK", "中国香港", "香港" -> "HK";
+            default -> code.isBlank() ? "OTHER" : code;
+        };
+    }
+
     private String resolveRegionName(String regionCode, String fallbackName) {
-        if ("UK".equalsIgnoreCase(regionCode)) return "英国";
-        if ("US".equalsIgnoreCase(regionCode)) return "美国";
-        if ("AUSTRALIA".equalsIgnoreCase(regionCode)) return "澳洲";
-        if ("EUROPE".equalsIgnoreCase(regionCode)) return "欧洲";
-        return fallbackName == null || fallbackName.isBlank() ? "其他区域" : fallbackName;
+        String normalized = normalizeRegionCode(regionCode);
+        return switch (normalized) {
+            case "UK" -> "英国";
+            case "US" -> "美国";
+            case "AU" -> "澳洲";
+            case "EU" -> "欧洲";
+            case "CA" -> "加拿大";
+            case "SG" -> "新加坡";
+            case "JP" -> "日本";
+            case "HK" -> "中国香港";
+            default -> fallbackName == null || fallbackName.isBlank() ? "其他区域" : fallbackName;
+        };
     }
 
     private String buildOfficialWebsiteRemark(LeadDtos.OfficialWebsiteRequest r, String userAgent, String regionName) {
@@ -336,6 +365,10 @@ public class LeadService {
         if (value == null) return null;
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private int safeCount(Integer value) {
+        return value == null ? 0 : value;
     }
 
     private String safe(String value) {
