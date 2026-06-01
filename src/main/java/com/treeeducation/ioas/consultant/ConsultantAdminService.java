@@ -56,6 +56,20 @@ public class ConsultantAdminService {
         return consultants.publicList().stream().map(c -> buildResponse(c, userMap.get(c.getUserId()), operatorMap.get(c.getUserId()), null)).toList();
     }
 
+    public List<ConsultantAdminDtos.RegionView> publicRegionOptions() {
+        Map<Long, ConsultantRegion> regionMap = regions.findAll().stream().collect(Collectors.toMap(ConsultantRegion::getId, r -> r, (a, b) -> a));
+        return scopes.findAll().stream()
+                .filter(scope -> Boolean.TRUE.equals(scope.getEnabled()))
+                .map(scope -> regionMap.get(scope.getRegionId()))
+                .filter(Objects::nonNull)
+                .filter(region -> Boolean.TRUE.equals(region.getEnabled()))
+                .collect(Collectors.toMap(ConsultantRegion::getRegionCode, region -> region, (a, b) -> a, LinkedHashMap::new))
+                .values().stream()
+                .sorted(Comparator.comparing(ConsultantRegion::getSortOrder, Comparator.nullsLast(Integer::compareTo)).thenComparing(ConsultantRegion::getId))
+                .map(region -> new ConsultantAdminDtos.RegionView(region.getId(), region.getRegionCode(), region.getRegionName(), region.getSortOrder() == null ? 999 : region.getSortOrder()))
+                .toList();
+    }
+
     @Transactional
     public ConsultantAdminDtos.Response create(ConsultantAdminDtos.CreateRequest req) {
         String displayName = required(req.displayName(), "顾问姓名不能为空").trim();
