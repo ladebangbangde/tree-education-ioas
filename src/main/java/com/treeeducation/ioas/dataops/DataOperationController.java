@@ -28,6 +28,23 @@ public class DataOperationController {
         this.namedJdbc = namedJdbc;
     }
 
+    @GetMapping("/users")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA')")
+    public ApiResponse<List<Map<String, Object>>> userOptions(@RequestParam(required = false) String role) {
+        String roleCode = role == null ? "" : role.trim().toUpperCase(Locale.ROOT);
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        StringBuilder sql = new StringBuilder("select id, username, display_name, department, role_code from sys_user where status = 'ACTIVE'");
+        if (!roleCode.isBlank()) {
+            if (!List.of("MEDIA", "OPERATOR", "DATA", "ADMINISTRATIVE", "CONSULTANT").contains(roleCode)) {
+                throw BusinessException.badRequest("不支持的角色类型");
+            }
+            sql.append(" and role_code = :roleCode");
+            params.addValue("roleCode", roleCode);
+        }
+        sql.append(" order by role_code asc, id desc");
+        return ApiResponse.ok(namedJdbc.queryForList(sql.toString(), params));
+    }
+
     @GetMapping("/packages")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA','MEDIA','OPERATOR')")
     public ApiResponse<List<Map<String, Object>>> listPackages(@RequestParam(required = false) String date,
