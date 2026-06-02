@@ -27,7 +27,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/tasks")
-@Tag(name = "Task", description = "媒体任务、运营任务与联动更新")
+@Tag(name = "Task", description = "媒体任务、运营任务、顾问任务、数据任务与联动更新")
 public class TaskController {
     private final TaskRepository repo;
     private final ContentPackageRepository packages;
@@ -74,6 +74,19 @@ public class TaskController {
                                                                  @AuthenticationPrincipal UserPrincipal p) {
         List<TaskDtos.Response> rows = repo.findByRoleType(TaskRoleType.operator).stream()
                 .filter(t -> canReadTask(t, p, TaskRoleType.operator))
+                .map(this::toResponse)
+                .toList();
+        return ApiResponse.ok(PageResponse.of(rows, pageNum, pageSize));
+    }
+
+    @GetMapping("/data")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA')")
+    @Operation(summary = "数据任务列表，包含封面上传、截图上传与日报生成任务")
+    public ApiResponse<PageResponse<TaskDtos.Response>> data(@RequestParam(defaultValue = "1") int pageNum,
+                                                             @RequestParam(defaultValue = "20") int pageSize,
+                                                             @AuthenticationPrincipal UserPrincipal p) {
+        List<TaskDtos.Response> rows = repo.findByRoleType(TaskRoleType.data).stream()
+                .filter(t -> canReadTask(t, p, TaskRoleType.data))
                 .map(this::toResponse)
                 .toList();
         return ApiResponse.ok(PageResponse.of(rows, pageNum, pageSize));
@@ -207,6 +220,7 @@ public class TaskController {
         if (p == null || p.id() == null || p.role() == null) return false;
         if (expectedRoleType == TaskRoleType.media && !"MEDIA".equalsIgnoreCase(p.role())) return false;
         if (expectedRoleType == TaskRoleType.operator && !"OPERATOR".equalsIgnoreCase(p.role())) return false;
+        if (expectedRoleType == TaskRoleType.data && !"DATA".equalsIgnoreCase(p.role())) return false;
         return task.getAssigneeId() != null && p.id().equals(task.getAssigneeId());
     }
 
@@ -222,6 +236,7 @@ public class TaskController {
         if (canReadConsultantTask(task, p)) return;
         if (task.getRoleType() == TaskRoleType.media && canReadTask(task, p, TaskRoleType.media)) return;
         if (task.getRoleType() == TaskRoleType.operator && canReadTask(task, p, TaskRoleType.operator)) return;
+        if (task.getRoleType() == TaskRoleType.data && canReadTask(task, p, TaskRoleType.data)) return;
         throw BusinessException.forbidden("只能查看或操作自己账号所属角色范围内的任务");
     }
 
@@ -264,7 +279,7 @@ public class TaskController {
         try {
             notificationService.sendToUser(
                     task.getAssigneeId(),
-                    task.getRoleType() == TaskRoleType.operator ? "OPERATOR" : "MEDIA",
+                    task.getRoleType() == TaskRoleType.operator ? "OPERATOR" : task.getRoleType() == TaskRoleType.data ? "DATA" : "MEDIA",
                     "任务已完成",
                     "任务《" + safeText(task.getTitle(), "未命名任务") + "》已完成，请在任务中心查看。",
                     "TASK_COMPLETED",
