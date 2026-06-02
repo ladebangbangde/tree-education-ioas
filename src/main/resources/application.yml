@@ -46,6 +46,13 @@ ioas:
     secret-key: ${IOAS_MINIO_SECRET_KEY:minioadmin}
     bucket: ${IOAS_STORAGE_BUCKET:ioas-assets}
     public-base-url: ${IOAS_STORAGE_PUBLIC_BASE_URL:http://localhost:9000/ioas-assets}
+  recognition:
+    enabled: ${IOAS_RECOGNITION_ENABLED:true}
+    base-url: ${IOAS_RECOGNITION_BASE_URL:http://localhost:18083}
+    recognize-path: ${IOAS_RECOGNITION_RECOGNIZE_PATH:/api/v1/recognize}
+    token: ${IOAS_RECOGNITION_TOKEN:dev-recognition-token}
+    connect-timeout-ms: ${IOAS_RECOGNITION_CONNECT_TIMEOUT_MS:5000}
+    read-timeout-ms: ${IOAS_RECOGNITION_READ_TIMEOUT_MS:60000}
   task:
     max-user-running: ${IOAS_TASK_MAX_USER_RUNNING:3}
     max-global-running: ${IOAS_TASK_MAX_GLOBAL_RUNNING:20}
