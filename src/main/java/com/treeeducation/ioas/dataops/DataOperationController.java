@@ -3,6 +3,7 @@ package com.treeeducation.ioas.dataops;
 import com.treeeducation.ioas.auth.UserPrincipal;
 import com.treeeducation.ioas.common.ApiResponse;
 import com.treeeducation.ioas.common.BusinessException;
+import com.treeeducation.ioas.task.TaskService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -27,6 +28,7 @@ import java.util.stream.Collectors;
 public class DataOperationController {
     private final JdbcTemplate jdbc;
     private final NamedParameterJdbcTemplate namedJdbc;
+    private final TaskService taskService;
 
     @Value("${app.upload.base-dir:/app/uploads}")
     private String uploadBaseDir;
@@ -35,9 +37,10 @@ public class DataOperationController {
     @Value("${app.upload.bucket:data-operation}")
     private String uploadBucket;
 
-    public DataOperationController(JdbcTemplate jdbc, NamedParameterJdbcTemplate namedJdbc) {
+    public DataOperationController(JdbcTemplate jdbc, NamedParameterJdbcTemplate namedJdbc, TaskService taskService) {
         this.jdbc = jdbc;
         this.namedJdbc = namedJdbc;
+        this.taskService = taskService;
     }
 
     @GetMapping("/users")
@@ -87,6 +90,7 @@ public class DataOperationController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA')")
     public ApiResponse<Map<String, Object>> createPackage(@RequestBody CreatePackageRequest request,
                                                           @AuthenticationPrincipal UserPrincipal principal) {
+        if (request == null) throw BusinessException.badRequest("请求不能为空");
         LocalDate topicDate = request.topicDate() == null ? LocalDate.now() : request.topicDate();
         List<Long> operatorIds = cleanIds(request.operatorUserIds());
         List<Long> mediaIds = cleanIds(request.mediaUserIds());
@@ -109,8 +113,8 @@ public class DataOperationController {
                 .addValue("operatorNames", operatorNames)
                 .addValue("mediaUserIds", joinIds(mediaIds))
                 .addValue("mediaNames", mediaNames)
-                .addValue("createdBy", principal == null ? 0L : principal.id())
-                .addValue("createdByName", principal == null ? "system" : principal.displayName());
+                .addValue("createdBy", currentUserId(principal))
+                .addValue("createdByName", currentUserName(principal));
         namedJdbc.update("""
                 insert into data_operation_topic_package
                 (package_no, topic_date, display_name, folder_name, operator_user_ids, operator_names, media_user_ids, media_names, created_by, created_by_name)
@@ -167,6 +171,9 @@ public class DataOperationController {
         Map<String, Object> asset = storeAsset(file, packageId, topicId, null, "COVER", objectKey, principal);
         jdbc.update("update data_operation_platform_topic set cover_asset_id = ?, cover_image_url = ?, ocr_status = 'pending', updated_at = current_timestamp(6) where id = ?",
                 asset.get("id"), asset.get("public_url"), topicId);
+        taskService.createDataCoverUploadTask(packageId, objectToString(topic.get("sub_topic_name")), objectToString(asset.get("original_filename")),
+                numberToLong(asset.get("file_size")), objectToString(asset.get("bucket_name")), objectToString(asset.get("object_key")),
+                objectToString(asset.get("public_url")), currentUserId(principal), currentUserName(principal));
         Map<String, Object> response = queryOne("select * from data_operation_platform_topic where id = ?", topicId);
         response.put("asset", asset);
         return ApiResponse.ok(response);
@@ -187,7 +194,11 @@ public class DataOperationController {
         int index = 1;
         for (MultipartFile file : files) {
             String objectKey = buildObjectKey(pkg, topic, content, "screenshots", String.format("%03d_%s", index++, safeFileName(file.getOriginalFilename())));
-            assets.add(storeAsset(file, packageId, topicId, contentId, "DATA_SCREENSHOT", objectKey, principal));
+            Map<String, Object> asset = storeAsset(file, packageId, topicId, contentId, "DATA_SCREENSHOT", objectKey, principal);
+            assets.add(asset);
+            taskService.createDataScreenshotUploadTask(packageId, objectToString(content.get("content_title")), objectToString(asset.get("original_filename")),
+                    numberToLong(asset.get("file_size")), objectToString(asset.get("bucket_name")), objectToString(asset.get("object_key")),
+                    objectToString(asset.get("public_url")), currentUserId(principal), currentUserName(principal));
         }
         jdbc.update("update data_operation_content set screenshot_count = screenshot_count + ?, recognition_status = 'pending', updated_at = current_timestamp(6) where id = ?", assets.size(), contentId);
         Map<String, Object> response = queryOne("select * from data_operation_content where id = ?", contentId);
@@ -243,7 +254,7 @@ public class DataOperationController {
                 .addValue("douyinCount", douyinCount)
                 .addValue("xiaohongshuCount", xiaohongshuCount)
                 .addValue("failedCount", failedCount)
-                .addValue("createdBy", principal == null ? 0L : principal.id())
+                .addValue("createdBy", currentUserId(principal))
                 .addValue("summaryJson", String.format("{\"packageCount\":%d,\"contentCount\":%d,\"screenshotCount\":%d}", packageCount, contentCount, screenshotCount));
         namedJdbc.update("""
                 insert into data_operation_daily_report
@@ -251,6 +262,7 @@ public class DataOperationController {
                 values (:date, :packageCount, :contentCount, :screenshotCount, :douyinCount, :xiaohongshuCount, :failedCount, 'created', :summaryJson, :createdBy)
                 """, params, keyHolder);
         Long id = Objects.requireNonNull(keyHolder.getKey()).longValue();
+        taskService.createDataDailyReportTask(date, currentUserId(principal), currentUserName(principal));
         return ApiResponse.ok(queryOne("select * from data_operation_daily_report where id = ?", id));
     }
 
@@ -266,10 +278,13 @@ public class DataOperationController {
         if (file == null || file.isEmpty()) throw BusinessException.badRequest("上传文件不能为空");
         String originalFilename = safeFileName(file.getOriginalFilename());
         String mimeType = file.getContentType() == null ? "application/octet-stream" : file.getContentType();
-        Path target = Path.of(uploadBaseDir, objectKey).normalize();
+        Path base = Path.of(uploadBaseDir).normalize().toAbsolutePath();
+        Path target = base.resolve(objectKey).normalize().toAbsolutePath();
+        if (!target.startsWith(base)) throw BusinessException.badRequest("非法文件路径");
         Files.createDirectories(target.getParent());
         file.transferTo(target);
-        String publicUrl = (uploadPublicPrefix.endsWith("/") ? uploadPublicPrefix.substring(0, uploadPublicPrefix.length() - 1) : uploadPublicPrefix) + "/" + objectKey.replace("\\", "/");
+        String prefix = uploadPublicPrefix.endsWith("/") ? uploadPublicPrefix.substring(0, uploadPublicPrefix.length() - 1) : uploadPublicPrefix;
+        String publicUrl = prefix + "/" + objectKey.replace((char) 92, '/');
 
         KeyHolder keyHolder = new GeneratedKeyHolder();
         MapSqlParameterSource params = new MapSqlParameterSource()
@@ -283,7 +298,7 @@ public class DataOperationController {
                 .addValue("publicUrl", publicUrl)
                 .addValue("mimeType", mimeType)
                 .addValue("fileSize", file.getSize())
-                .addValue("createdBy", principal == null ? 0L : principal.id());
+                .addValue("createdBy", currentUserId(principal));
         namedJdbc.update("""
                 insert into data_operation_asset
                 (package_id, platform_topic_id, content_id, asset_type, original_filename, bucket_name, object_key, public_url, mime_type, file_size, upload_status, created_by)
@@ -299,17 +314,7 @@ public class DataOperationController {
         String coverTopic = safeFolder(String.valueOf(Optional.ofNullable(topic.get("ocr_title")).orElse(topic.get("sub_topic_name"))));
         String platformName = safeFolder(String.valueOf(topic.get("platform_name")));
         String contentName = content == null ? "pending_content" : safeFolder(String.valueOf(content.get("content_title")));
-        return String.join("/",
-                "data-operation",
-                String.valueOf(date.getYear()),
-                String.format("%02d", date.getMonthValue()),
-                String.format("%02d", date.getDayOfMonth()),
-                packageFolder,
-                coverTopic,
-                platformName,
-                contentName,
-                folder,
-                UUID.randomUUID() + "_" + safeFileName(filename));
+        return String.join("/", "data-operation", String.valueOf(date.getYear()), String.format("%02d", date.getMonthValue()), String.format("%02d", date.getDayOfMonth()), packageFolder, coverTopic, platformName, contentName, folder, UUID.randomUUID() + "_" + safeFileName(filename));
     }
 
     private LocalDate toLocalDate(Object value) {
@@ -336,8 +341,7 @@ public class DataOperationController {
 
     private String namesOf(List<Long> ids) {
         if (ids.isEmpty()) return "";
-        List<String> names = namedJdbc.queryForList("select display_name from sys_user where id in (:ids) order by field(id, " + joinIds(ids) + ")",
-                new MapSqlParameterSource("ids", ids), String.class);
+        List<String> names = namedJdbc.queryForList("select display_name from sys_user where id in (:ids) order by field(id, " + joinIds(ids) + ")", new MapSqlParameterSource("ids", ids), String.class);
         return names.isEmpty() ? joinIds(ids) : String.join("+", names);
     }
 
@@ -353,14 +357,54 @@ public class DataOperationController {
     }
 
     private String safeFolder(String value) {
-        if (value == null || value.isBlank() || "null".equalsIgnoreCase(value)) return "未命名";
-        String cleaned = value.replaceAll("[\\\\/:*?\"<>|\\s]+", "_").replaceAll("_+", "_");
-        return cleaned.length() > 80 ? cleaned.substring(0, 80) : cleaned;
+        return cleanPathPart(value == null ? "未命名" : value);
     }
 
     private String safeFileName(String value) {
-        String name = value == null || value.isBlank() ? "upload.bin" : value;
-        return name.replaceAll("[\\\\/:*?\"<>|\\s]+", "_").replaceAll("_+", "_");
+        return cleanPathPart(value == null || value.isBlank() ? "upload.bin" : value);
+    }
+
+    private String cleanPathPart(String value) {
+        if (value == null || value.isBlank() || "null".equalsIgnoreCase(value)) return "未命名";
+        StringBuilder sb = new StringBuilder(value.length());
+        for (char c : value.trim().toCharArray()) {
+            if (isUnsafePathChar(c)) {
+                if (!sb.isEmpty() && sb.charAt(sb.length() - 1) != '_') sb.append('_');
+            } else {
+                sb.append(c);
+            }
+        }
+        String cleaned = sb.toString();
+        while (cleaned.startsWith("_")) cleaned = cleaned.substring(1);
+        while (cleaned.endsWith("_")) cleaned = cleaned.substring(0, cleaned.length() - 1);
+        if (cleaned.isBlank()) cleaned = "未命名";
+        return cleaned.length() > 80 ? cleaned.substring(0, 80) : cleaned;
+    }
+
+    private boolean isUnsafePathChar(char c) {
+        return Character.isWhitespace(c) || c == '/' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|' || c == (char) 92;
+    }
+
+    private String objectToString(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private Long numberToLong(Object value) {
+        if (value instanceof Number number) return number.longValue();
+        if (value == null) return null;
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private Long currentUserId(UserPrincipal principal) {
+        return principal == null ? 0L : principal.id();
+    }
+
+    private String currentUserName(UserPrincipal principal) {
+        return principal == null ? "system" : principal.userName();
     }
 
     public record CreatePackageRequest(LocalDate topicDate, List<Long> operatorUserIds, List<Long> mediaUserIds) {}
