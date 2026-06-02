@@ -8,5 +8,8 @@ public enum TaskType {
     media_upload,
     operator_lead_generate,
     consultant_qr_upload,
-    consultant_region_change
+    consultant_region_change,
+    data_cover_upload,
+    data_screenshot_upload,
+    data_daily_report_generate
 }
