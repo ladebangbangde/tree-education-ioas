@@ -89,17 +89,18 @@ public class ImageRecognitionService {
         if ("COVER".equalsIgnoreCase(assetType)) {
             Long topicId = numberToLong(asset.get("platform_topic_id"));
             if (topicId == null) return;
-            String title = stringFromResult(response, "contentTitle", "title", "ocrTitle");
+            String title = normalizeRecognizedName(stringFromResult(response, "contentTitle", "topicName", "title", "name", "ocrTitle"));
             String accountName = stringFromResult(response, "accountName", "authorName", "nickname");
             jdbc.update("""
                     update data_operation_platform_topic
                     set ocr_status = 'success',
+                        sub_topic_name = coalesce(?, sub_topic_name),
                         ocr_title = coalesce(?, ocr_title),
                         ocr_account_name = coalesce(?, ocr_account_name),
                         ocr_payload_json = ?,
                         updated_at = current_timestamp(6)
                     where id = ?
-                    """, title, accountName, payloadJson, topicId);
+                    """, title, title, accountName, payloadJson, topicId);
             return;
         }
         Long contentId = numberToLong(asset.get("content_id"));
@@ -127,6 +128,13 @@ public class ImageRecognitionService {
             }
         }
         return null;
+    }
+
+    private String normalizeRecognizedName(String value) {
+        if (value == null) return null;
+        String result = value.trim().replaceAll("\\s+", " ");
+        if (result.isBlank()) return null;
+        return result.length() > 180 ? result.substring(0, 180) : result;
     }
 
     private String resolvePlatform(Map<String, Object> asset) {
