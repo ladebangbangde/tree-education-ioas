@@ -16,10 +16,14 @@ import io.minio.RemoveObjectArgs;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,6 +40,10 @@ public class TaskController {
     private final TaskLogService taskLogService;
     private final NotificationService notificationService;
     private final MinioClient minioClient;
+    private final JdbcTemplate jdbc;
+
+    @Value("${app.upload.base-dir:/app/uploads}")
+    private String uploadBaseDir;
 
     public TaskController(TaskRepository repo,
                           ContentPackageRepository packages,
@@ -43,7 +51,8 @@ public class TaskController {
                           AuditLogRepository audits,
                           TaskLogService taskLogService,
                           NotificationService notificationService,
-                          @Qualifier("minioClient") MinioClient minioClient) {
+                          @Qualifier("minioClient") MinioClient minioClient,
+                          JdbcTemplate jdbc) {
         this.repo = repo;
         this.packages = packages;
         this.assetFiles = assetFiles;
@@ -51,6 +60,7 @@ public class TaskController {
         this.taskLogService = taskLogService;
         this.notificationService = notificationService;
         this.minioClient = minioClient;
+        this.jdbc = jdbc;
     }
 
     @GetMapping("/media")
@@ -131,7 +141,7 @@ public class TaskController {
         t.setUpdatedAt(Instant.now());
         t.setErrorMessage("用户取消任务");
         repo.save(t);
-        taskLogService.warn(id, "task cancelled by userId=" + p.id());
+        taskLogService.warn(id, "task cancelled by userId=" + (p == null ? "unknown" : p.id()));
         return ApiResponse.ok(toResponse(t));
     }
 
@@ -183,6 +193,7 @@ public class TaskController {
     @Operation(summary = "任务联动更新")
     public ApiResponse<TaskDtos.Response> update(@PathVariable Long id, @RequestBody TaskDtos.UpdateRequest r,
                                                  @AuthenticationPrincipal UserPrincipal p) {
+        if (r == null) throw BusinessException.badRequest("请求不能为空");
         Task t = repo.findById(id).orElseThrow(() -> BusinessException.notFound("任务不存在"));
         assertTaskAccess(t, p);
         String oldStatus = t.getStatus();
@@ -200,7 +211,7 @@ public class TaskController {
         log.setAction(AuditAction.update_task);
         log.setTargetType("task");
         log.setTargetId(id);
-        log.setActorId(p.id());
+        log.setActorId(p == null ? 0L : p.id());
         log.setDetail(t.getStatus());
         audits.save(log);
         taskLogService.info(id, "task updated status=" + t.getStatus() + ", progress=" + t.getProgress());
@@ -246,7 +257,13 @@ public class TaskController {
         if (bucket == null || bucket.isBlank() || objectKey == null || objectKey.isBlank()) {
             return new PurgeResult(0, 0);
         }
+        if (task.getRoleType() == TaskRoleType.data) {
+            return purgeDataOperationObject(task, bucket, objectKey);
+        }
+        return purgeMediaAssetObject(task, bucket, objectKey);
+    }
 
+    private PurgeResult purgeMediaAssetObject(Task task, String bucket, String objectKey) {
         int deletedObjects = 0;
         int deletedAssetRows = 0;
         try {
@@ -265,8 +282,29 @@ public class TaskController {
         return new PurgeResult(deletedObjects, deletedAssetRows);
     }
 
+    private PurgeResult purgeDataOperationObject(Task task, String bucket, String objectKey) {
+        int deletedObjects = 0;
+        int deletedAssetRows = 0;
+        try {
+            Path base = Path.of(uploadBaseDir).normalize().toAbsolutePath();
+            Path target = base.resolve(objectKey).normalize().toAbsolutePath();
+            if (target.startsWith(base) && Files.deleteIfExists(target)) {
+                deletedObjects = 1;
+            }
+            taskLogService.warn(task.getId(), "permanently deleted data object " + bucket + "/" + objectKey);
+        } catch (Exception ex) {
+            taskLogService.warn(task.getId(), "delete data object ignored, bucket=" + bucket + ", objectKey=" + objectKey + ", message=" + ex.getMessage());
+        }
+        try {
+            deletedAssetRows = jdbc.update("delete from data_operation_asset where bucket_name = ? and object_key = ?", bucket, objectKey);
+        } catch (RuntimeException ex) {
+            taskLogService.warn(task.getId(), "delete data asset row ignored: " + ex.getMessage());
+        }
+        return new PurgeResult(deletedObjects, deletedAssetRows);
+    }
+
     private TaskDtos.Response toResponse(Task task) {
-        ContentPackage contentPackage = task.getRelatedPackageId() == null
+        ContentPackage contentPackage = task.getRelatedPackageId() == null || task.getRoleType() == TaskRoleType.data
                 ? null
                 : packages.findById(task.getRelatedPackageId()).orElse(null);
         return TaskDtos.of(task, contentPackage);
