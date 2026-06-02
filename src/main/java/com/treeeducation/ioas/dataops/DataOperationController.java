@@ -3,6 +3,8 @@ package com.treeeducation.ioas.dataops;
 import com.treeeducation.ioas.auth.UserPrincipal;
 import com.treeeducation.ioas.common.ApiResponse;
 import com.treeeducation.ioas.common.BusinessException;
+import com.treeeducation.ioas.recognition.ImageRecognitionDtos;
+import com.treeeducation.ioas.recognition.ImageRecognitionService;
 import com.treeeducation.ioas.task.TaskService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -29,6 +31,7 @@ public class DataOperationController {
     private final JdbcTemplate jdbc;
     private final NamedParameterJdbcTemplate namedJdbc;
     private final TaskService taskService;
+    private final ImageRecognitionService imageRecognitionService;
 
     @Value("${app.upload.base-dir:/app/uploads}")
     private String uploadBaseDir;
@@ -37,10 +40,11 @@ public class DataOperationController {
     @Value("${app.upload.bucket:data-operation}")
     private String uploadBucket;
 
-    public DataOperationController(JdbcTemplate jdbc, NamedParameterJdbcTemplate namedJdbc, TaskService taskService) {
+    public DataOperationController(JdbcTemplate jdbc, NamedParameterJdbcTemplate namedJdbc, TaskService taskService, ImageRecognitionService imageRecognitionService) {
         this.jdbc = jdbc;
         this.namedJdbc = namedJdbc;
         this.taskService = taskService;
+        this.imageRecognitionService = imageRecognitionService;
     }
 
     @GetMapping("/users")
@@ -233,6 +237,85 @@ public class DataOperationController {
         return ApiResponse.ok(queryOne("select * from data_operation_content where id = ?", id));
     }
 
+    @PostMapping("/assets/{assetId}/recognize")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA')")
+    public ApiResponse<ImageRecognitionDtos.Response> recognizeAsset(@PathVariable Long assetId,
+                                                                     @RequestParam(required = false) String platform,
+                                                                     @RequestParam(required = false) String scene) {
+        return ApiResponse.ok(imageRecognitionService.recognizeDataAsset(assetId, platform, scene));
+    }
+
+    @PostMapping("/platform-topics/{topicId}/generate-current-data")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA')")
+    public ApiResponse<Map<String, Object>> generateCurrentTopicData(@PathVariable Long topicId) {
+        Map<String, Object> topic = queryOne("select * from data_operation_platform_topic where id = ?", topicId);
+        Long packageId = ((Number) topic.get("package_id")).longValue();
+        String platformCode = normalizePlatform(objectToString(topic.get("platform_code")));
+        int coverRecognized = 0;
+        int screenshotsRecognized = 0;
+        int skipped = 0;
+        List<Map<String, Object>> failures = new ArrayList<>();
+
+        Long coverAssetId = numberToLong(topic.get("cover_asset_id"));
+        String coverStatus = objectToString(topic.get("ocr_status"));
+        if (coverAssetId != null && !isRecognizedStatus(coverStatus)) {
+            try {
+                imageRecognitionService.recognizeDataAsset(coverAssetId, platformCode, "CONTENT_DETAIL");
+                coverRecognized++;
+            } catch (RuntimeException ex) {
+                failures.add(Map.of("assetId", coverAssetId, "type", "COVER", "message", ex.getMessage()));
+            }
+        } else if (coverAssetId == null) {
+            skipped++;
+        }
+
+        List<Map<String, Object>> screenshotAssets = jdbc.queryForList("""
+                select * from data_operation_asset
+                where platform_topic_id = ? and asset_type = 'DATA_SCREENSHOT'
+                order by id asc
+                """, topicId);
+        for (Map<String, Object> asset : screenshotAssets) {
+            Long assetId = numberToLong(asset.get("id"));
+            if (assetId == null) {
+                skipped++;
+                continue;
+            }
+            if (isRecognizedStatus(objectToString(asset.get("upload_status")))) {
+                skipped++;
+                continue;
+            }
+            try {
+                imageRecognitionService.recognizeDataAsset(assetId, platformCode, "CONTENT_DETAIL");
+                screenshotsRecognized++;
+            } catch (RuntimeException ex) {
+                failures.add(Map.of("assetId", assetId, "type", "DATA_SCREENSHOT", "message", ex.getMessage()));
+            }
+        }
+
+        if (screenshotsRecognized > 0) {
+            jdbc.update("""
+                    update data_operation_content
+                    set recognition_status = 'success', updated_at = current_timestamp(6)
+                    where platform_topic_id = ? and exists (
+                        select 1 from data_operation_asset a
+                        where a.content_id = data_operation_content.id
+                          and a.asset_type = 'DATA_SCREENSHOT'
+                          and a.upload_status = 'recognized'
+                    )
+                    """, topicId);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("topicId", topicId);
+        result.put("packageId", packageId);
+        result.put("coverRecognized", coverRecognized);
+        result.put("screenshotsRecognized", screenshotsRecognized);
+        result.put("skipped", skipped);
+        result.put("failed", failures.size());
+        result.put("failures", failures);
+        result.put("package", detailPackage(packageId));
+        return ApiResponse.ok(result);
+    }
+
     @PostMapping("/reports/daily")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA')")
     public ApiResponse<Map<String, Object>> generateDailyReport(@RequestBody DailyReportRequest request,
@@ -328,6 +411,10 @@ public class DataOperationController {
         List<Map<String, Object>> rows = jdbc.queryForList(sql, args);
         if (rows.isEmpty()) throw BusinessException.notFound("数据不存在");
         return new LinkedHashMap<>(rows.get(0));
+    }
+
+    private boolean isRecognizedStatus(String status) {
+        return "success".equalsIgnoreCase(status) || "recognized".equalsIgnoreCase(status);
     }
 
     private List<Long> cleanIds(List<Long> ids) {
