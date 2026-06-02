@@ -1,0 +1,189 @@
+package com.treeeducation.ioas.recognition;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.treeeducation.ioas.common.BusinessException;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+@Service
+public class ImageRecognitionService {
+    private final ImageRecognitionClient client;
+    private final JdbcTemplate jdbc;
+    private final ObjectMapper objectMapper;
+
+    @Value("${app.upload.base-dir:/app/uploads}")
+    private String uploadBaseDir;
+
+    public ImageRecognitionService(ImageRecognitionClient client, JdbcTemplate jdbc, ObjectMapper objectMapper) {
+        this.client = client;
+        this.jdbc = jdbc;
+        this.objectMapper = objectMapper;
+    }
+
+    public ImageRecognitionDtos.Response recognizeUploaded(MultipartFile file, String platform, String scene) {
+        String normalizedPlatform = normalizePlatform(platform);
+        String normalizedScene = normalizeScene(scene);
+        Map<String, Object> payload = client.recognize(file, normalizedPlatform, normalizedScene);
+        return client.normalize(payload, normalizedPlatform, normalizedScene);
+    }
+
+    @Transactional
+    public ImageRecognitionDtos.Response recognizeDataAsset(Long assetId, String platform, String scene) {
+        Map<String, Object> asset = queryOne("select * from data_operation_asset where id = ?", assetId);
+        String assetType = stringValue(asset.get("asset_type"));
+        if (!"COVER".equalsIgnoreCase(assetType) && !"DATA_SCREENSHOT".equalsIgnoreCase(assetType)) {
+            throw BusinessException.badRequest("该文件不是可识别的数据图片");
+        }
+        String objectKey = stringValue(asset.get("object_key"));
+        String fileName = stringValue(asset.get("original_filename"));
+        String contentType = stringValue(asset.get("mime_type"));
+        byte[] bytes = readAssetBytes(objectKey);
+
+        String normalizedPlatform = normalizePlatform(platform);
+        if (normalizedPlatform == null) {
+            normalizedPlatform = resolvePlatform(asset);
+        }
+        String normalizedScene = normalizeScene(scene);
+        if (normalizedScene == null) {
+            normalizedScene = "COVER".equalsIgnoreCase(assetType) ? "CONTENT_DETAIL" : "CONTENT_DETAIL";
+        }
+
+        ImageRecognitionDtos.Response response = client.normalize(
+                client.recognize(bytes, fileName, contentType, normalizedPlatform, normalizedScene),
+                normalizedPlatform,
+                normalizedScene);
+        writeBack(asset, assetType, response);
+        jdbc.update("update data_operation_asset set upload_status = 'recognized' where id = ?", assetId);
+        return response;
+    }
+
+    private byte[] readAssetBytes(String objectKey) {
+        if (objectKey == null || objectKey.isBlank()) {
+            throw BusinessException.badRequest("文件对象路径为空");
+        }
+        try {
+            Path base = Path.of(uploadBaseDir).normalize().toAbsolutePath();
+            Path target = base.resolve(objectKey).normalize().toAbsolutePath();
+            if (!target.startsWith(base)) throw BusinessException.badRequest("非法文件路径");
+            if (!Files.exists(target)) throw BusinessException.notFound("文件不存在：" + objectKey);
+            return Files.readAllBytes(target);
+        } catch (IOException ex) {
+            throw BusinessException.badRequest("读取文件失败：" + ex.getMessage());
+        }
+    }
+
+    private void writeBack(Map<String, Object> asset, String assetType, ImageRecognitionDtos.Response response) {
+        String payloadJson = toJson(response);
+        if ("COVER".equalsIgnoreCase(assetType)) {
+            Long topicId = numberToLong(asset.get("platform_topic_id"));
+            if (topicId == null) return;
+            String title = stringFromResult(response, "contentTitle", "title", "ocrTitle");
+            String accountName = stringFromResult(response, "accountName", "authorName", "nickname");
+            jdbc.update("""
+                    update data_operation_platform_topic
+                    set ocr_status = 'success',
+                        ocr_title = coalesce(?, ocr_title),
+                        ocr_account_name = coalesce(?, ocr_account_name),
+                        ocr_payload_json = ?,
+                        updated_at = current_timestamp(6)
+                    where id = ?
+                    """, title, accountName, payloadJson, topicId);
+            return;
+        }
+        Long contentId = numberToLong(asset.get("content_id"));
+        if (contentId == null) return;
+        jdbc.update("""
+                update data_operation_content
+                set recognition_status = 'success',
+                    data_payload_json = ?,
+                    updated_at = current_timestamp(6)
+                where id = ?
+                """, payloadJson, contentId);
+    }
+
+    private String stringFromResult(ImageRecognitionDtos.Response response, String... keys) {
+        if (response == null || response.result() == null) return null;
+        for (String key : keys) {
+            Object value = response.result().get(key);
+            if (value != null && !String.valueOf(value).isBlank()) return String.valueOf(value);
+        }
+        Object metrics = response.result().get("metrics");
+        if (metrics instanceof Map<?, ?> map) {
+            for (String key : keys) {
+                Object value = map.get(key);
+                if (value != null && !String.valueOf(value).isBlank()) return String.valueOf(value);
+            }
+        }
+        return null;
+    }
+
+    private String resolvePlatform(Map<String, Object> asset) {
+        Long topicId = numberToLong(asset.get("platform_topic_id"));
+        if (topicId != null) {
+            List<Map<String, Object>> rows = jdbc.queryForList("select platform_code from data_operation_platform_topic where id = ?", topicId);
+            if (!rows.isEmpty()) return normalizePlatform(stringValue(rows.get(0).get("platform_code")));
+        }
+        Long contentId = numberToLong(asset.get("content_id"));
+        if (contentId != null) {
+            List<Map<String, Object>> rows = jdbc.queryForList("select platform_code from data_operation_content where id = ?", contentId);
+            if (!rows.isEmpty()) return normalizePlatform(stringValue(rows.get(0).get("platform_code")));
+        }
+        return "XIAOHONGSHU";
+    }
+
+    private String normalizePlatform(String value) {
+        if (value == null || value.isBlank()) return null;
+        String code = value.trim().toUpperCase(Locale.ROOT);
+        if ("DOUYIN".equals(code) || "抖音".equals(code)) return "DOUYIN";
+        if ("XIAOHONGSHU".equals(code) || "XHS".equals(code) || "小红书".equals(code)) return "XIAOHONGSHU";
+        if ("WECHAT_CHANNEL".equals(code) || "VIDEO_ACCOUNT".equals(code) || "视频号".equals(code)) return "WECHAT_CHANNEL";
+        throw BusinessException.badRequest("不支持的平台：" + value);
+    }
+
+    private String normalizeScene(String value) {
+        if (value == null || value.isBlank()) return null;
+        String scene = value.trim().toUpperCase(Locale.ROOT);
+        if ("CONTENT_DETAIL".equals(scene) || "CONTENT_LIST".equals(scene) || "ACCOUNT_OVERVIEW".equals(scene)) return scene;
+        throw BusinessException.badRequest("不支持的识别场景：" + value);
+    }
+
+    private Map<String, Object> queryOne(String sql, Object... args) {
+        List<Map<String, Object>> rows = jdbc.queryForList(sql, args);
+        if (rows.isEmpty()) throw BusinessException.notFound("数据不存在");
+        return new LinkedHashMap<>(rows.get(0));
+    }
+
+    private String toJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException ex) {
+            return "{}";
+        }
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private Long numberToLong(Object value) {
+        if (value instanceof Number number) return number.longValue();
+        if (value == null) return null;
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+}
