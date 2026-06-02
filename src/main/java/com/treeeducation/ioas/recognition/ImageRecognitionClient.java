@@ -3,6 +3,7 @@ package com.treeeducation.ioas.recognition;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.treeeducation.ioas.common.BusinessException;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -11,10 +12,8 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.core.io.ByteArrayResource;
 
 import java.io.IOException;
-import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,7 +51,7 @@ public class ImageRecognitionClient {
         }
         RestClient client = RestClient.builder()
                 .requestFactory(requestFactory())
-                .baseUrl(trimRightSlash(properties.getBaseUrl()))
+                .baseUrl(normalizeBaseUrl(properties.getBaseUrl()))
                 .build();
 
         ByteArrayResource fileResource = new ByteArrayResource(bytes) {
@@ -163,16 +162,18 @@ public class ImageRecognitionClient {
         return factory;
     }
 
-    private String trimRightSlash(String value) {
-        if (value == null || value.isBlank()) return "http://localhost:18083";
-        String cleaned = value.trim();
+    private String normalizeBaseUrl(String value) {
+        String cleaned = value == null || value.isBlank() ? "http://tree-education-datacollecting:18083" : value.trim();
         while (cleaned.endsWith("/")) cleaned = cleaned.substring(0, cleaned.length() - 1);
+        if (!cleaned.startsWith("http://") && !cleaned.startsWith("https://")) {
+            cleaned = "http://" + cleaned;
+        }
         return cleaned;
     }
 
-    private URI normalizePath(String path) {
+    private String normalizePath(String path) {
         String cleaned = path == null || path.isBlank() ? "/api/v1/recognize" : path.trim();
-        return URI.create(cleaned.startsWith("/") ? cleaned : "/" + cleaned);
+        return cleaned.startsWith("/") ? cleaned : "/" + cleaned;
     }
 
     private String nullToEmpty(String value) {
