@@ -10,9 +10,9 @@ spring:
       max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:5GB}
       max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:5GB}
   datasource:
-    url: ${IOAS_DB_URL:jdbc:mysql://localhost:3306/tree_education_ioas?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
-    username: ${IOAS_DB_USERNAME:root}
-    password: ${IOAS_DB_PASSWORD:root}
+    url: ${IOAS_DB_URL:${IOAS_DATASOURCE_URL:jdbc:mysql://localhost:3306/tree_education_ioas?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}}
+    username: ${IOAS_DB_USERNAME:${IOAS_DATASOURCE_USERNAME:root}}
+    password: ${IOAS_DB_PASSWORD:${IOAS_DATASOURCE_PASSWORD:root}}
   jpa:
     hibernate:
       ddl-auto: validate
