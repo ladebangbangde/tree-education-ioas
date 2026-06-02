@@ -35,6 +35,9 @@ public final class TaskDtos {
                            Integer progress,
                            String errorMessage,
                            String fileName,
+                           String uploadBucketName,
+                           String uploadObjectKey,
+                           String uploadPublicUrl,
                            Long fileSize,
                            Long uploadedBytes,
                            Long speedBytesPerSecond,
@@ -74,6 +77,9 @@ public final class TaskDtos {
                 progress,
                 t.getErrorMessage(),
                 t.getFileName(),
+                t.getUploadBucketName(),
+                t.getUploadObjectKey(),
+                t.getUploadPublicUrl(),
                 t.getFileSize(),
                 t.getUploadedBytes(),
                 t.getSpeedBytesPerSecond(),
@@ -87,7 +93,9 @@ public final class TaskDtos {
     }
 
     private static boolean isUploadTask(Task t) {
-        return t != null && t.getTaskType() == TaskType.media_upload;
+        return t != null && (t.getTaskType() == TaskType.media_upload
+                || t.getTaskType() == TaskType.data_cover_upload
+                || t.getTaskType() == TaskType.data_screenshot_upload);
     }
 
     private static boolean isSuccess(Task t) {
