@@ -9,11 +9,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 
-/** Keeps media/operator tasks synchronized with package, upload and lead events. */
+/** Keeps media/operator/data tasks synchronized with package, upload and lead events. */
 @Service
 public class TaskService {
     public static final String PACKAGE_CREATE_TASK_TYPE = "PACKAGE_CREATE";
     public static final String PACKAGE_UPLOAD_TASK_TYPE = "PACKAGE_MEDIA_UPLOAD";
+    public static final String DATA_COVER_UPLOAD_TASK_TYPE = "DATA_COVER_UPLOAD";
+    public static final String DATA_SCREENSHOT_UPLOAD_TASK_TYPE = "DATA_SCREENSHOT_UPLOAD";
+    public static final String DATA_DAILY_REPORT_TASK_TYPE = "DATA_DAILY_REPORT";
     private static final String OPERATOR_LEAD_TASK_TYPE = "OPERATOR_LEAD";
     private static final String WEBSITE_LEAD_TASK_TYPE = "WEBSITE_LEAD";
 
@@ -163,12 +166,71 @@ public class TaskService {
         taskLogService.info(saved.getId(), "official website lead notification created, leadId=" + leadId + ", studentName=" + safe(studentName) + ", targetCountry=" + safe(targetCountry) + ", assigneeName=" + safe(assigneeName));
     }
 
+    @Transactional
+    public void createDataCoverUploadTask(Long packageId, String title, String fileName, Long fileSize, String bucketName,
+                                          String objectKey, String publicUrl, Long assigneeId, String assigneeName) {
+        Task saved = createDataUploadTask(DATA_COVER_UPLOAD_TASK_TYPE, TaskType.data_cover_upload,
+                "封面识别上传 - " + safe(title), packageId, fileName, fileSize, bucketName, objectKey, publicUrl, assigneeId, assigneeName);
+        taskLogService.info(saved.getId(), "data cover uploaded, packageId=" + packageId + ", objectKey=" + safe(objectKey));
+        notifyTask(saved, "封面上传完成", "封面《" + safe(fileName) + "》已上传，等待识别处理。", "DATA_COVER_UPLOADED", 20);
+    }
+
+    @Transactional
+    public void createDataScreenshotUploadTask(Long packageId, String title, String fileName, Long fileSize, String bucketName,
+                                               String objectKey, String publicUrl, Long assigneeId, String assigneeName) {
+        Task saved = createDataUploadTask(DATA_SCREENSHOT_UPLOAD_TASK_TYPE, TaskType.data_screenshot_upload,
+                "数据截图上传 - " + safe(title), packageId, fileName, fileSize, bucketName, objectKey, publicUrl, assigneeId, assigneeName);
+        taskLogService.info(saved.getId(), "data screenshot uploaded, packageId=" + packageId + ", objectKey=" + safe(objectKey));
+    }
+
+    @Transactional
+    public void createDataDailyReportTask(LocalDate reportDate, Long assigneeId, String assigneeName) {
+        Task task = new Task();
+        task.setType(DATA_DAILY_REPORT_TASK_TYPE);
+        task.setTitle("数据日报生成 - " + (reportDate == null ? LocalDate.now() : reportDate));
+        task.setTaskType(TaskType.data_daily_report_generate);
+        task.setRoleType(TaskRoleType.data);
+        task.setAssigneeId(assigneeId);
+        task.setAssigneeName(assigneeName);
+        task.setStatus(MediaTaskStatus.success.name());
+        task.setProgress(100);
+        task.setCompletedAt(Instant.now());
+        task.setUpdatedAt(Instant.now());
+        Task saved = tasks.save(task);
+        taskLogService.info(saved.getId(), "data daily report generated, reportDate=" + (reportDate == null ? LocalDate.now() : reportDate));
+        notifyTask(saved, "数据日报生成完成", "当日数据报告已生成，请在数据操作模块查看。", "DATA_DAILY_REPORT_CREATED", 20);
+    }
+
+    private Task createDataUploadTask(String type, TaskType taskType, String title, Long packageId, String fileName, Long fileSize,
+                                      String bucketName, String objectKey, String publicUrl, Long assigneeId, String assigneeName) {
+        Task task = new Task();
+        task.setType(type);
+        task.setTitle(title);
+        task.setTaskType(taskType);
+        task.setRoleType(TaskRoleType.data);
+        task.setRelatedPackageId(packageId);
+        task.setAssigneeId(assigneeId);
+        task.setAssigneeName(assigneeName);
+        task.setStatus(MediaTaskStatus.success.name());
+        task.setProgress(100);
+        task.setFileName(fileName);
+        task.setFileSize(fileSize);
+        task.setUploadedBytes(fileSize);
+        task.setUploadBucketName(bucketName);
+        task.setUploadObjectKey(objectKey);
+        task.setUploadPublicUrl(publicUrl);
+        task.setCompletedAt(Instant.now());
+        task.setLastProgressAt(Instant.now());
+        task.setUpdatedAt(Instant.now());
+        return tasks.save(task);
+    }
+
     private void notifyTask(Task task, String title, String content, String notificationType, Integer priority) {
         if (task.getAssigneeId() == null) return;
         try {
             notifications.sendToUser(new NotificationDtos.SendRequest(
                     task.getAssigneeId(),
-                    task.getRoleType() == TaskRoleType.operator ? "OPERATOR" : "MEDIA",
+                    notificationRole(task),
                     title,
                     content,
                     "task",
@@ -180,6 +242,12 @@ public class TaskService {
         } catch (RuntimeException ex) {
             taskLogService.warn(task.getId(), "task notification failed: " + ex.getMessage());
         }
+    }
+
+    private String notificationRole(Task task) {
+        if (task.getRoleType() == TaskRoleType.operator) return "OPERATOR";
+        if (task.getRoleType() == TaskRoleType.data) return "DATA";
+        return "MEDIA";
     }
 
     private String trim(String value, int maxLength) {
