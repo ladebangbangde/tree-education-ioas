@@ -1,37 +1,31 @@
+server:
+  port: ${IOAS_SERVER_PORT:1201}
+
 spring:
   application:
     name: tree-education-ioas
-  datasource:
-    url: ${IOAS_DATASOURCE_URL:jdbc:mysql://localhost:3306/tree_education_ioas?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true}
-    username: ${IOAS_DATASOURCE_USERNAME:root}
-    password: ${IOAS_DATASOURCE_PASSWORD:change-me}
   servlet:
     multipart:
       enabled: true
       max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:5GB}
       max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:5GB}
-      file-size-threshold: ${SPRING_SERVLET_MULTIPART_FILE_SIZE_THRESHOLD:2MB}
+  datasource:
+    url: ${IOAS_DB_URL:jdbc:mysql://localhost:3306/tree_education_ioas?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${IOAS_DB_USERNAME:root}
+    password: ${IOAS_DB_PASSWORD:root}
   jpa:
     hibernate:
       ddl-auto: validate
     open-in-view: false
-    properties:
-      hibernate:
-        format_sql: true
   flyway:
     enabled: true
     locations: classpath:db/migration
-    out-of-order: ${IOAS_FLYWAY_OUT_OF_ORDER:true}
   data:
     redis:
       host: ${IOAS_REDIS_HOST:localhost}
       port: ${IOAS_REDIS_PORT:6379}
-server:
-  port: ${IOAS_SERVER_PORT:1201}
-  tomcat:
-    connection-timeout: ${SERVER_TOMCAT_CONNECTION_TIMEOUT:30m}
-    max-swallow-size: ${SERVER_TOMCAT_MAX_SWALLOW_SIZE:-1}
-    max-http-form-post-size: ${SERVER_TOMCAT_MAX_HTTP_FORM_POST_SIZE:-1}
+      password: ${IOAS_REDIS_PASSWORD:}
+      database: ${IOAS_REDIS_DATABASE:0}
 
 ioas:
   jwt:
@@ -48,7 +42,7 @@ ioas:
     public-base-url: ${IOAS_STORAGE_PUBLIC_BASE_URL:http://localhost:9000/ioas-assets}
   recognition:
     enabled: ${IOAS_RECOGNITION_ENABLED:true}
-    base-url: ${IOAS_RECOGNITION_BASE_URL:http://localhost:18083}
+    base-url: ${IOAS_RECOGNITION_BASE_URL:http://tree-education-datacollecting:18083}
     recognize-path: ${IOAS_RECOGNITION_RECOGNIZE_PATH:/api/v1/recognize}
     token: ${IOAS_RECOGNITION_TOKEN:dev-recognition-token}
     connect-timeout-ms: ${IOAS_RECOGNITION_CONNECT_TIMEOUT_MS:5000}
