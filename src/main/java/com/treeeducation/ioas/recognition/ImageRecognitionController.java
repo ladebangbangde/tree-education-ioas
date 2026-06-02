@@ -18,7 +18,7 @@ public class ImageRecognitionController {
     }
 
     @PostMapping("/social-metrics")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA','MEDIA')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA','OPERATOR','MEDIA')")
     @Operation(summary = "临时上传图片并识别社媒数据")
     public ApiResponse<ImageRecognitionDtos.Response> socialMetrics(@RequestParam("file") MultipartFile file,
                                                                      @RequestParam String platform,
