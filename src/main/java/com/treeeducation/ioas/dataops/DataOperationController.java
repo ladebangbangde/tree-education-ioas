@@ -184,7 +184,7 @@ public class DataOperationController {
     }
 
     @PostMapping("/contents/{contentId}/screenshots")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA','OPERATOR','MEDIA')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA')")
     public ApiResponse<Map<String, Object>> uploadScreenshots(@PathVariable Long contentId,
                                                               @RequestParam("files") List<MultipartFile> files,
                                                               @AuthenticationPrincipal UserPrincipal principal) throws IOException {
