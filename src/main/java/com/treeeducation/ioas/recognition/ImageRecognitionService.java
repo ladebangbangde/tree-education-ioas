@@ -89,8 +89,10 @@ public class ImageRecognitionService {
         if ("COVER".equalsIgnoreCase(assetType)) {
             Long topicId = numberToLong(asset.get("platform_topic_id"));
             if (topicId == null) return;
-            String title = normalizeRecognizedName(stringFromResult(response, "contentTitle", "topicName", "title", "name", "ocrTitle"));
-            String accountName = stringFromResult(response, "accountName", "authorName", "nickname");
+            String contentTitle = normalizeRecognizedName(stringFromResult(response, "contentTitle", "topicName", "title", "name", "ocrTitle"));
+            String accountName = normalizeRecognizedName(stringFromResult(response, "accountName", "authorName", "nickname"));
+            String accountId = normalizeRecognizedName(stringFromResult(response, "douyinId", "wechatChannelId", "videoAccountId", "accountId"));
+            String displayTitle = contentTitle != null ? contentTitle : buildAccountDisplay(accountName, accountId);
             jdbc.update("""
                     update data_operation_platform_topic
                     set ocr_status = 'success',
@@ -100,7 +102,7 @@ public class ImageRecognitionService {
                         ocr_payload_json = ?,
                         updated_at = current_timestamp(6)
                     where id = ?
-                    """, title, title, accountName, payloadJson, topicId);
+                    """, contentTitle, displayTitle, accountName, payloadJson, topicId);
             return;
         }
         Long contentId = numberToLong(asset.get("content_id"));
@@ -112,6 +114,13 @@ public class ImageRecognitionService {
                     updated_at = current_timestamp(6)
                 where id = ?
                 """, payloadJson, contentId);
+    }
+
+    private String buildAccountDisplay(String accountName, String accountId) {
+        if (accountName != null && accountId != null) return accountName + " / " + accountId;
+        if (accountName != null) return accountName;
+        if (accountId != null) return "账号ID " + accountId;
+        return null;
     }
 
     private String stringFromResult(ImageRecognitionDtos.Response response, String... keys) {
