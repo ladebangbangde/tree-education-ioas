@@ -18,8 +18,9 @@ public class UploadStaticResourceConfig implements WebMvcConfigurer {
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         String pattern = uploadPublicPrefix.endsWith("/") ? uploadPublicPrefix + "**" : uploadPublicPrefix + "/**";
+        String apiPattern = pattern.startsWith("/api/") ? pattern : "/api" + pattern;
         String location = Path.of(uploadBaseDir).toAbsolutePath().normalize().toUri().toString();
-        registry.addResourceHandler(pattern)
+        registry.addResourceHandler(pattern, apiPattern)
                 .addResourceLocations(location)
                 .setCachePeriod(3600);
     }
