@@ -6,6 +6,7 @@ import io.minio.GetObjectArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -66,6 +67,21 @@ public class DataOperationAssetStorageService {
         }
     }
 
+    public void delete(String bucketName, String objectKey) {
+        if (objectKey == null || objectKey.isBlank()) return;
+        String effectiveBucket = bucketName == null || bucketName.isBlank() ? bucket : bucketName;
+        Exception minioError = null;
+        try {
+            client().removeObject(RemoveObjectArgs.builder()
+                    .bucket(effectiveBucket)
+                    .object(objectKey)
+                    .build());
+        } catch (Exception ex) {
+            minioError = ex;
+        }
+        deleteLegacyLocalFile(objectKey, minioError);
+    }
+
     private byte[] readLegacyLocalBytes(String objectKey, Exception minioError) {
         try {
             Path base = Path.of(legacyUploadBaseDir).normalize().toAbsolutePath();
@@ -77,6 +93,21 @@ public class DataOperationAssetStorageService {
             return Files.readAllBytes(target);
         } catch (IOException ioException) {
             throw BusinessException.badRequest("读取文件失败：" + ioException.getMessage() + "；MinIO错误：" + minioError.getMessage());
+        }
+    }
+
+    private void deleteLegacyLocalFile(String objectKey, Exception minioError) {
+        try {
+            Path base = Path.of(legacyUploadBaseDir).normalize().toAbsolutePath();
+            Path target = base.resolve(objectKey).normalize().toAbsolutePath();
+            if (!target.startsWith(base)) throw BusinessException.badRequest("非法文件路径");
+            if (Files.exists(target) && Files.isRegularFile(target)) Files.delete(target);
+        } catch (IOException ioException) {
+            String minioMessage = minioError == null ? "" : "；MinIO错误：" + minioError.getMessage();
+            throw BusinessException.badRequest("删除文件失败：" + ioException.getMessage() + minioMessage);
+        }
+        if (minioError != null) {
+            // MinIO 的 removeObject 对不存在对象通常不报错；这里保留本地兼容删除，不因历史本地文件不存在而阻断数据库清理。
         }
     }
 
