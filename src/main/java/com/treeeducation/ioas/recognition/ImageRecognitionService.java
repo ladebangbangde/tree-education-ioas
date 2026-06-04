@@ -3,15 +3,12 @@ package com.treeeducation.ioas.recognition;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.treeeducation.ioas.common.BusinessException;
-import org.springframework.beans.factory.annotation.Value;
+import com.treeeducation.ioas.dataops.DataOperationAssetStorageService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -22,14 +19,19 @@ public class ImageRecognitionService {
     private final ImageRecognitionClient client;
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
+    private final DataOperationAssetStorageService storageService;
+    private final DataOperationMetricExtractor metricExtractor;
 
-    @Value("${app.upload.base-dir:/app/uploads}")
-    private String uploadBaseDir;
-
-    public ImageRecognitionService(ImageRecognitionClient client, JdbcTemplate jdbc, ObjectMapper objectMapper) {
+    public ImageRecognitionService(ImageRecognitionClient client,
+                                   JdbcTemplate jdbc,
+                                   ObjectMapper objectMapper,
+                                   DataOperationAssetStorageService storageService,
+                                   DataOperationMetricExtractor metricExtractor) {
         this.client = client;
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
+        this.storageService = storageService;
+        this.metricExtractor = metricExtractor;
     }
 
     public ImageRecognitionDtos.Response recognizeUploaded(MultipartFile file, String platform, String scene) {
@@ -47,9 +49,10 @@ public class ImageRecognitionService {
             throw BusinessException.badRequest("该文件不是可识别的数据图片");
         }
         String objectKey = stringValue(asset.get("object_key"));
+        String bucketName = stringValue(asset.get("bucket_name"));
         String fileName = stringValue(asset.get("original_filename"));
         String contentType = stringValue(asset.get("mime_type"));
-        byte[] bytes = readAssetBytes(objectKey);
+        byte[] bytes = storageService.readBytes(bucketName, objectKey);
 
         String normalizedPlatform = normalizePlatform(platform);
         if (normalizedPlatform == null) {
@@ -60,6 +63,7 @@ public class ImageRecognitionService {
             normalizedScene = "COVER".equalsIgnoreCase(assetType) ? "CONTENT_DETAIL" : "CONTENT_DETAIL";
         }
 
+        jdbc.update("update data_operation_asset set upload_status = 'processing' where id = ?", assetId);
         ImageRecognitionDtos.Response response = client.normalize(
                 client.recognize(bytes, fileName, contentType, normalizedPlatform, normalizedScene),
                 normalizedPlatform,
@@ -67,21 +71,6 @@ public class ImageRecognitionService {
         writeBack(asset, assetType, response);
         jdbc.update("update data_operation_asset set upload_status = 'recognized' where id = ?", assetId);
         return response;
-    }
-
-    private byte[] readAssetBytes(String objectKey) {
-        if (objectKey == null || objectKey.isBlank()) {
-            throw BusinessException.badRequest("文件对象路径为空");
-        }
-        try {
-            Path base = Path.of(uploadBaseDir).normalize().toAbsolutePath();
-            Path target = base.resolve(objectKey).normalize().toAbsolutePath();
-            if (!target.startsWith(base)) throw BusinessException.badRequest("非法文件路径");
-            if (!Files.exists(target)) throw BusinessException.notFound("文件不存在：" + objectKey);
-            return Files.readAllBytes(target);
-        } catch (IOException ex) {
-            throw BusinessException.badRequest("读取文件失败：" + ex.getMessage());
-        }
     }
 
     private void writeBack(Map<String, Object> asset, String assetType, ImageRecognitionDtos.Response response) {
@@ -107,13 +96,35 @@ public class ImageRecognitionService {
         }
         Long contentId = numberToLong(asset.get("content_id"));
         if (contentId == null) return;
+        String assetGroup = resolveAssetGroup(asset);
+        Map<String, Object> extracted = metricExtractor.extract(assetGroup, response);
+        String extractedJson = toJson(extracted);
+        Long assetId = numberToLong(asset.get("id"));
+        if (assetId != null) {
+            jdbc.update("""
+                    update data_operation_asset
+                    set ocr_payload_json = ?,
+                        data_payload_json = ?
+                    where id = ?
+                    """, payloadJson, extractedJson, assetId);
+        }
         jdbc.update("""
                 update data_operation_content
                 set recognition_status = 'success',
                     data_payload_json = ?,
                     updated_at = current_timestamp(6)
                 where id = ?
-                """, payloadJson, contentId);
+                """, extractedJson, contentId);
+    }
+
+    private String resolveAssetGroup(Map<String, Object> asset) {
+        String direct = stringValue(asset.get("asset_group"));
+        if (direct != null && !direct.isBlank()) return direct;
+        String objectKey = stringValue(asset.get("object_key"));
+        String marker = objectKey == null ? "" : objectKey.toLowerCase(Locale.ROOT);
+        if (marker.contains("douyin_flow_analysis")) return "DOUYIN_FLOW_ANALYSIS";
+        if (marker.contains("douyin_overview_chart")) return "DOUYIN_OVERVIEW_CHART";
+        return "DOUYIN_OVERVIEW";
     }
 
     private String buildAccountDisplay(String accountName, String accountId) {
