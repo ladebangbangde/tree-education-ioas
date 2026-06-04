@@ -4,7 +4,6 @@ import com.treeeducation.ioas.auth.UserPrincipal;
 import com.treeeducation.ioas.common.ApiResponse;
 import com.treeeducation.ioas.common.BusinessException;
 import com.treeeducation.ioas.task.TaskService;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -16,8 +15,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.sql.Date;
 import java.time.LocalDate;
 import java.util.*;
@@ -28,18 +25,16 @@ public class DataOperationGroupedAssetController {
     private final JdbcTemplate jdbc;
     private final NamedParameterJdbcTemplate namedJdbc;
     private final TaskService taskService;
+    private final DataOperationAssetStorageService storageService;
 
-    @Value("${app.upload.base-dir:/app/uploads}")
-    private String uploadBaseDir;
-    @Value("${app.upload.public-prefix:/uploads}")
-    private String uploadPublicPrefix;
-    @Value("${app.upload.bucket:data-operation}")
-    private String uploadBucket;
-
-    public DataOperationGroupedAssetController(JdbcTemplate jdbc, NamedParameterJdbcTemplate namedJdbc, TaskService taskService) {
+    public DataOperationGroupedAssetController(JdbcTemplate jdbc,
+                                               NamedParameterJdbcTemplate namedJdbc,
+                                               TaskService taskService,
+                                               DataOperationAssetStorageService storageService) {
         this.jdbc = jdbc;
         this.namedJdbc = namedJdbc;
         this.taskService = taskService;
+        this.storageService = storageService;
     }
 
     @PostMapping(value = "/contents/{contentId}/screenshots", params = "assetGroup")
@@ -59,9 +54,7 @@ public class DataOperationGroupedAssetController {
         int index = 1;
         for (MultipartFile file : files) {
             String objectKey = buildObjectKey(pkg, topic, content, group.toLowerCase(Locale.ROOT), String.format("%03d_%s", index++, safeFileName(file.getOriginalFilename())));
-            Map<String, Object> asset = storeAsset(file, packageId, topicId, contentId, "DATA_SCREENSHOT", objectKey, principal);
-            asset.put("asset_group", group);
-            asset.put("assetGroup", group);
+            Map<String, Object> asset = storeAsset(file, packageId, topicId, contentId, "DATA_SCREENSHOT", group, objectKey, principal);
             assets.add(asset);
             taskService.createDataScreenshotUploadTask(packageId, objectToString(content.get("content_title")), objectToString(asset.get("original_filename")),
                     numberToLong(asset.get("file_size")), objectToString(asset.get("bucket_name")), objectToString(asset.get("object_key")),
@@ -73,29 +66,22 @@ public class DataOperationGroupedAssetController {
         return ApiResponse.ok(response);
     }
 
-    private Map<String, Object> storeAsset(MultipartFile file, Long packageId, Long topicId, Long contentId, String assetType, String objectKey, UserPrincipal principal) throws IOException {
+    private Map<String, Object> storeAsset(MultipartFile file, Long packageId, Long topicId, Long contentId, String assetType, String assetGroup, String objectKey, UserPrincipal principal) {
         if (file == null || file.isEmpty()) throw BusinessException.badRequest("上传文件不能为空");
         String originalFilename = safeFileName(file.getOriginalFilename());
-        String mimeType = file.getContentType() == null ? "application/octet-stream" : file.getContentType();
-        Path base = Path.of(uploadBaseDir).normalize().toAbsolutePath();
-        Path target = base.resolve(objectKey).normalize().toAbsolutePath();
-        if (!target.startsWith(base)) throw BusinessException.badRequest("非法文件路径");
-        Files.createDirectories(target.getParent());
-        file.transferTo(target);
-        String prefix = uploadPublicPrefix.endsWith("/") ? uploadPublicPrefix.substring(0, uploadPublicPrefix.length() - 1) : uploadPublicPrefix;
-        String publicUrl = prefix + "/" + objectKey.replace((char) 92, '/');
+        DataOperationAssetStorageService.StoredAsset stored = storageService.upload(file, objectKey, originalFilename);
         KeyHolder keyHolder = new GeneratedKeyHolder();
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("packageId", packageId)
                 .addValue("topicId", topicId)
                 .addValue("contentId", contentId)
                 .addValue("assetType", assetType)
-                .addValue("originalFilename", originalFilename)
-                .addValue("bucketName", uploadBucket)
-                .addValue("objectKey", objectKey)
-                .addValue("publicUrl", publicUrl)
-                .addValue("mimeType", mimeType)
-                .addValue("fileSize", file.getSize())
+                .addValue("originalFilename", stored.originalFilename())
+                .addValue("bucketName", stored.bucketName())
+                .addValue("objectKey", stored.objectKey())
+                .addValue("publicUrl", stored.publicUrl())
+                .addValue("mimeType", stored.mimeType())
+                .addValue("fileSize", stored.fileSize())
                 .addValue("createdBy", currentUserId(principal));
         namedJdbc.update("""
                 insert into data_operation_asset
@@ -103,7 +89,10 @@ public class DataOperationGroupedAssetController {
                 values (:packageId, :topicId, :contentId, :assetType, :originalFilename, :bucketName, :objectKey, :publicUrl, :mimeType, :fileSize, 'success', :createdBy)
                 """, params, keyHolder);
         Long id = Objects.requireNonNull(keyHolder.getKey()).longValue();
-        return queryOne("select * from data_operation_asset where id = ?", id);
+        Map<String, Object> asset = queryOne("select * from data_operation_asset where id = ?", id);
+        asset.put("asset_group", assetGroup);
+        asset.put("assetGroup", assetGroup);
+        return asset;
     }
 
     private String normalizeAssetGroup(String value) {
