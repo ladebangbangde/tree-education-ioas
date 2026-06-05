@@ -46,6 +46,8 @@ public class DataOperationMetricService {
                     id bigint primary key auto_increment,
                     topic_package_id bigint not null,
                     platform_topic_id bigint not null,
+                    account_id bigint null,
+                    video_id bigint null,
                     content_id bigint null,
                     asset_id bigint null,
                     platform_code varchar(32) not null,
@@ -64,15 +66,18 @@ public class DataOperationMetricService {
                     created_at datetime(6) not null default current_timestamp(6),
                     updated_at datetime(6) not null default current_timestamp(6) on update current_timestamp(6),
                     unique key uk_metric_asset_key (asset_id, metric_group, metric_key),
-                    index idx_topic_metric (platform_topic_id, metric_group, display_order_placeholder),
+                    index idx_topic_metric (platform_topic_id, metric_group, metric_key),
+                    index idx_video_metric (video_id, metric_group, metric_key),
                     index idx_package_metric (topic_package_id, metric_key),
                     index idx_status (recognition_status)
                 )
-                """.replace("display_order_placeholder", "metric_key"));
+                """);
         ensureColumn("data_operation_platform_topic", "ocr_platform_user_id", "alter table data_operation_platform_topic add column ocr_platform_user_id varchar(128) null comment '平台账号ID/抖音号/视频号' after ocr_account_name");
         ensureColumn("data_operation_platform_topic", "ocr_content_title", "alter table data_operation_platform_topic add column ocr_content_title varchar(255) null comment '识别出的作品标题' after ocr_platform_user_id");
         ensureColumn("data_operation_platform_topic", "ocr_fail_reason", "alter table data_operation_platform_topic add column ocr_fail_reason varchar(500) null comment '封面识别失败原因' after ocr_status");
         ensureColumn("data_operation_platform_topic", "recognized_at", "alter table data_operation_platform_topic add column recognized_at datetime(6) null comment '封面识别时间' after ocr_payload_json");
+        ensureColumn("data_operation_metric_value", "account_id", "alter table data_operation_metric_value add column account_id bigint null after platform_topic_id");
+        ensureColumn("data_operation_metric_value", "video_id", "alter table data_operation_metric_value add column video_id bigint null after account_id");
         seedDefinitions("DOUYIN", "IMAGE_TEXT");
         seedDefinitions("DOUYIN", "VIDEO");
     }
@@ -84,12 +89,8 @@ public class DataOperationMetricService {
         Long contentId = numberToLong(asset.get("content_id"));
         if (assetId == null || topicId == null) return;
         Long packageId = numberToLong(asset.get("package_id"));
-        if (packageId == null && contentId != null) {
-            packageId = queryLong("select package_id from data_operation_content where id = ?", contentId);
-        }
-        if (packageId == null) {
-            packageId = queryLong("select package_id from data_operation_platform_topic where id = ?", topicId);
-        }
+        if (packageId == null && contentId != null) packageId = queryLong("select package_id from data_operation_content where id = ?", contentId);
+        if (packageId == null) packageId = queryLong("select package_id from data_operation_platform_topic where id = ?", topicId);
         if (packageId == null) return;
         String group = normalizeMetricGroup(stringValue(extractedPayload.get("assetGroup")), stringValue(asset.get("asset_group")), stringValue(asset.get("object_key")));
         String effectivePlatform = nonBlank(platformCode, queryString("select platform_code from data_operation_platform_topic where id = ?", topicId), "DOUYIN");
@@ -123,6 +124,11 @@ public class DataOperationMetricService {
         return jdbc.queryForList("""
                 select v.id,
                        v.platform_topic_id as platformTopicId,
+                       v.account_id as accountId,
+                       a.account_name as accountName,
+                       a.platform_user_id as platformUserId,
+                       v.video_id as videoId,
+                       vid.video_title as videoTitle,
                        v.content_id as contentId,
                        v.asset_id as assetId,
                        v.platform_code as platformCode,
@@ -140,13 +146,15 @@ public class DataOperationMetricService {
                        v.recognized_at as recognizedAt,
                        d.display_order as displayOrder
                 from data_operation_metric_value v
+                left join data_operation_account a on a.id = v.account_id
+                left join data_operation_video vid on vid.id = v.video_id
                 left join data_operation_metric_definition d
                   on d.platform_code = v.platform_code
                  and d.content_type = v.content_type
                  and d.metric_group = v.metric_group
                  and d.metric_key = v.metric_key
                 where v.platform_topic_id = ?
-                order by field(v.metric_group, 'OVERVIEW', 'OVERVIEW_CHART', 'FLOW_ANALYSIS'), d.display_order, v.id
+                order by coalesce(a.id, 0), coalesce(vid.id, 0), field(v.metric_group, 'OVERVIEW', 'OVERVIEW_CHART', 'FLOW_ANALYSIS'), d.display_order, v.id
                 """, topicId);
     }
 
