@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.treeeducation.ioas.common.BusinessException;
 import com.treeeducation.ioas.dataops.DataOperationAssetStorageService;
 import com.treeeducation.ioas.dataops.DataOperationMetricService;
+import com.treeeducation.ioas.dataops.DataOperationVideoHierarchyService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,19 +25,22 @@ public class ImageRecognitionService {
     private final DataOperationAssetStorageService storageService;
     private final DataOperationMetricExtractor metricExtractor;
     private final DataOperationMetricService metricService;
+    private final DataOperationVideoHierarchyService hierarchyService;
 
     public ImageRecognitionService(ImageRecognitionClient client,
                                    JdbcTemplate jdbc,
                                    ObjectMapper objectMapper,
                                    DataOperationAssetStorageService storageService,
                                    DataOperationMetricExtractor metricExtractor,
-                                   DataOperationMetricService metricService) {
+                                   DataOperationMetricService metricService,
+                                   DataOperationVideoHierarchyService hierarchyService) {
         this.client = client;
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.storageService = storageService;
         this.metricExtractor = metricExtractor;
         this.metricService = metricService;
+        this.hierarchyService = hierarchyService;
     }
 
     public ImageRecognitionDtos.Response recognizeUploaded(MultipartFile file, String platform, String scene) {
@@ -101,6 +105,7 @@ public class ImageRecognitionService {
                         updated_at = current_timestamp(6)
                     where id = ?
                     """, contentTitle, displayTitle, accountName, accountId, contentTitle, payloadJson, LocalDateTime.now(), topicId);
+            hierarchyService.upsertAccountFromCover(topicId, normalizedPlatform, accountName, accountId);
             return;
         }
         Long contentId = numberToLong(asset.get("content_id"));
@@ -125,6 +130,8 @@ public class ImageRecognitionService {
                 where id = ?
                 """, extractedJson, contentId);
         metricService.upsertAssetMetrics(asset, extracted, normalizedPlatform, resolveContentType(asset));
+        DataOperationVideoHierarchyService.HierarchyRef ref = hierarchyService.upsertForRecognizedAsset(asset, response.result(), normalizedPlatform, resolveContentType(asset), payloadJson);
+        hierarchyService.attachMetrics(assetId, ref.accountId(), ref.videoId());
     }
 
     private String resolveAssetGroup(Map<String, Object> asset) {
