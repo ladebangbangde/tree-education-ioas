@@ -4,11 +4,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.treeeducation.ioas.common.BusinessException;
 import com.treeeducation.ioas.dataops.DataOperationAssetStorageService;
+import com.treeeducation.ioas.dataops.DataOperationMetricService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -21,17 +23,20 @@ public class ImageRecognitionService {
     private final ObjectMapper objectMapper;
     private final DataOperationAssetStorageService storageService;
     private final DataOperationMetricExtractor metricExtractor;
+    private final DataOperationMetricService metricService;
 
     public ImageRecognitionService(ImageRecognitionClient client,
                                    JdbcTemplate jdbc,
                                    ObjectMapper objectMapper,
                                    DataOperationAssetStorageService storageService,
-                                   DataOperationMetricExtractor metricExtractor) {
+                                   DataOperationMetricExtractor metricExtractor,
+                                   DataOperationMetricService metricService) {
         this.client = client;
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.storageService = storageService;
         this.metricExtractor = metricExtractor;
+        this.metricService = metricService;
     }
 
     public ImageRecognitionDtos.Response recognizeUploaded(MultipartFile file, String platform, String scene) {
@@ -60,7 +65,7 @@ public class ImageRecognitionService {
         }
         String normalizedScene = normalizeScene(scene);
         if (normalizedScene == null) {
-            normalizedScene = "COVER".equalsIgnoreCase(assetType) ? "CONTENT_DETAIL" : "CONTENT_DETAIL";
+            normalizedScene = "CONTENT_DETAIL";
         }
 
         jdbc.update("update data_operation_asset set upload_status = 'processing' where id = ?", assetId);
@@ -68,12 +73,12 @@ public class ImageRecognitionService {
                 client.recognize(bytes, fileName, contentType, normalizedPlatform, normalizedScene),
                 normalizedPlatform,
                 normalizedScene);
-        writeBack(asset, assetType, response);
+        writeBack(asset, assetType, response, normalizedPlatform);
         jdbc.update("update data_operation_asset set upload_status = 'recognized' where id = ?", assetId);
         return response;
     }
 
-    private void writeBack(Map<String, Object> asset, String assetType, ImageRecognitionDtos.Response response) {
+    private void writeBack(Map<String, Object> asset, String assetType, ImageRecognitionDtos.Response response, String normalizedPlatform) {
         String payloadJson = toJson(response);
         if ("COVER".equalsIgnoreCase(assetType)) {
             Long topicId = numberToLong(asset.get("platform_topic_id"));
@@ -88,10 +93,14 @@ public class ImageRecognitionService {
                         sub_topic_name = coalesce(?, sub_topic_name),
                         ocr_title = coalesce(?, ocr_title),
                         ocr_account_name = coalesce(?, ocr_account_name),
+                        ocr_platform_user_id = coalesce(?, ocr_platform_user_id),
+                        ocr_content_title = coalesce(?, ocr_content_title),
+                        ocr_fail_reason = null,
                         ocr_payload_json = ?,
+                        recognized_at = ?,
                         updated_at = current_timestamp(6)
                     where id = ?
-                    """, contentTitle, displayTitle, accountName, payloadJson, topicId);
+                    """, contentTitle, displayTitle, accountName, accountId, contentTitle, payloadJson, LocalDateTime.now(), topicId);
             return;
         }
         Long contentId = numberToLong(asset.get("content_id"));
@@ -115,6 +124,7 @@ public class ImageRecognitionService {
                     updated_at = current_timestamp(6)
                 where id = ?
                 """, extractedJson, contentId);
+        metricService.upsertAssetMetrics(asset, extracted, normalizedPlatform, resolveContentType(asset));
     }
 
     private String resolveAssetGroup(Map<String, Object> asset) {
@@ -125,6 +135,18 @@ public class ImageRecognitionService {
         if (marker.contains("douyin_flow_analysis")) return "DOUYIN_FLOW_ANALYSIS";
         if (marker.contains("douyin_overview_chart")) return "DOUYIN_OVERVIEW_CHART";
         return "DOUYIN_OVERVIEW";
+    }
+
+    private String resolveContentType(Map<String, Object> asset) {
+        Long contentId = numberToLong(asset.get("content_id"));
+        if (contentId != null) {
+            List<Map<String, Object>> rows = jdbc.queryForList("select content_type from data_operation_content where id = ?", contentId);
+            if (!rows.isEmpty()) {
+                String value = stringValue(rows.get(0).get("content_type"));
+                if (value != null && !value.isBlank()) return value;
+            }
+        }
+        return "IMAGE_TEXT";
     }
 
     private String buildAccountDisplay(String accountName, String accountId) {
