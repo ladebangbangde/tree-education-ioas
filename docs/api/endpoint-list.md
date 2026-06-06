@@ -32,6 +32,9 @@ All endpoints are under `/api/v1` and use `Authorization: Bearer <token>` except
 - `GET /media/resources/tree`
 - `GET /media/resources/packages?keyword=&operatorId=&pageNum=&pageSize=`
 
+## Data Recognition
+- `POST /data-recognition/screenshots/recognize` with multipart fields `file`, `platform`, `scene`, `contentType=AUTO|IMAGE_TEXT|VIDEO|ACCOUNT_OVERVIEW`
+
 ## Leads
 - `GET /leads?tab=unassigned|assigned|mine&keyword=&relatedPackageId=&operatorId=&pageNum=&pageSize=`
 - `POST /leads`
