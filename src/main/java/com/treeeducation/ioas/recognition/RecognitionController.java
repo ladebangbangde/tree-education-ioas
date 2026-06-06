@@ -16,12 +16,14 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api/v1/data-recognition")
 public class RecognitionController {
     private final RecognitionClient recognitionClient;
+    private final DataRecognitionService dataRecognitionService;
 
-    public RecognitionController(RecognitionClient recognitionClient) {
+    public RecognitionController(RecognitionClient recognitionClient, DataRecognitionService dataRecognitionService) {
         this.recognitionClient = recognitionClient;
+        this.dataRecognitionService = dataRecognitionService;
     }
 
-    @Operation(summary = "上传运营截图并调用识别服务", description = "OA 前端上传截图到 IOAS，IOAS 再转发给 tree-education-datacollecting，返回图文/视频结构化识别结果，供人工校验页使用。")
+    @Operation(summary = "上传运营截图并调用识别服务", description = "OA 前端上传截图到 IOAS，IOAS 再转发给 tree-education-datacollecting，返回图文/视频结构化识别结果，并保存为待人工校验记录。")
     @PostMapping(value = "/recognize", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<RecognitionResponse> recognize(
             @RequestParam("file") MultipartFile file,
@@ -29,6 +31,8 @@ public class RecognitionController {
             @RequestParam(defaultValue = "CONTENT_DETAIL") String scene,
             @RequestParam(defaultValue = "AUTO") String contentType
     ) {
-        return ApiResponse.ok(recognitionClient.recognize(file, platform, scene, contentType));
+        RecognitionResponse response = recognitionClient.recognize(file, platform, scene, contentType);
+        dataRecognitionService.savePendingReview(response);
+        return ApiResponse.ok(response);
     }
 }
