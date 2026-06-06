@@ -27,6 +27,7 @@ public class DataOperationAccountConfirmController {
     @PostMapping("/{topicId}/account/confirm")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA','CONSULTANT')")
     public ApiResponse<Map<String, Object>> confirmAccount(@PathVariable Long topicId, @RequestBody AccountConfirmRequest request) {
+        ensureColumns();
         String accountName = trimToNull(request.accountName());
         String platformUserId = trimToNull(request.platformUserId());
         if (accountName == null || platformUserId == null) {
@@ -34,24 +35,42 @@ public class DataOperationAccountConfirmController {
         }
         Map<String, Object> topic = queryOne("select * from data_operation_platform_topic where id = ?", topicId);
         String platformCode = stringValue(topic.get("platform_code"));
+        Long accountId = hierarchyService.upsertAccountFromCover(topicId, platformCode, accountName, platformUserId);
         jdbc.update("""
                 update data_operation_platform_topic
                 set ocr_status = 'success',
                     ocr_account_name = ?,
                     ocr_platform_user_id = ?,
+                    account_confirmed_flag = 1,
+                    account_confirmed_at = current_timestamp(6),
+                    confirmed_account_id = ?,
                     ocr_fail_reason = null,
                     recognized_at = ?,
                     updated_at = current_timestamp(6)
                 where id = ?
-                """, accountName, platformUserId, LocalDateTime.now(), topicId);
-        Long accountId = hierarchyService.upsertAccountFromCover(topicId, platformCode, accountName, platformUserId);
+                """, accountName, platformUserId, accountId, LocalDateTime.now(), topicId);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("topicId", topicId);
         result.put("accountId", accountId);
         result.put("accountName", accountName);
         result.put("platformUserId", platformUserId);
+        result.put("confirmed", true);
+        result.put("nextStep", "CHOOSE_CONTENT_TYPE");
         result.put("status", "SUCCESS");
         return ApiResponse.ok(result);
+    }
+
+    private void ensureColumns() {
+        ensureColumn("data_operation_platform_topic", "account_confirmed_flag", "alter table data_operation_platform_topic add column account_confirmed_flag tinyint(1) not null default 0 after ocr_platform_user_id");
+        ensureColumn("data_operation_platform_topic", "account_confirmed_at", "alter table data_operation_platform_topic add column account_confirmed_at datetime(6) null after account_confirmed_flag");
+        ensureColumn("data_operation_platform_topic", "confirmed_account_id", "alter table data_operation_platform_topic add column confirmed_account_id bigint null after account_confirmed_at");
+    }
+
+    private void ensureColumn(String table, String column, String ddl) {
+        try {
+            Integer count = jdbc.queryForObject("select count(*) from information_schema.columns where table_schema = database() and table_name = ? and column_name = ?", Integer.class, table, column);
+            if (count != null && count == 0) jdbc.execute(ddl);
+        } catch (RuntimeException ignored) {}
     }
 
     private Map<String, Object> queryOne(String sql, Object... args) {
