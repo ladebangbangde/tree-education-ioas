@@ -80,6 +80,9 @@ public class DataOperationMetricService {
         ensureColumn("data_operation_metric_value", "video_id", "alter table data_operation_metric_value add column video_id bigint null after account_id");
         seedDefinitions("DOUYIN", "IMAGE_TEXT");
         seedDefinitions("DOUYIN", "VIDEO");
+        seedDefinitions("XIAOHONGSHU", "IMAGE_TEXT");
+        seedDefinitions("XIAOHONGSHU", "VIDEO");
+        disableUnsupportedPlatform("WECHAT_CHANNEL");
     }
 
     @Transactional
@@ -94,7 +97,7 @@ public class DataOperationMetricService {
         if (packageId == null) return;
         String group = normalizeMetricGroup(stringValue(extractedPayload.get("assetGroup")), stringValue(asset.get("asset_group")), stringValue(asset.get("object_key")));
         String effectivePlatform = nonBlank(platformCode, queryString("select platform_code from data_operation_platform_topic where id = ?", topicId), "DOUYIN");
-        String effectiveContentType = nonBlank(contentType, queryString("select content_type from data_operation_platform_topic where id = ?", topicId), "IMAGE_TEXT");
+        String effectiveContentType = nonBlank(contentType, queryString("select content_type from data_operation_content where id = ?", contentId), queryString("select content_type from data_operation_platform_topic where id = ?", topicId), "IMAGE_TEXT");
 
         ensureMetricRows(packageId, topicId, contentId, assetId, effectivePlatform, effectiveContentType, group);
 
@@ -154,7 +157,7 @@ public class DataOperationMetricService {
                  and d.metric_group = v.metric_group
                  and d.metric_key = v.metric_key
                 where v.platform_topic_id = ?
-                order by coalesce(a.id, 0), coalesce(vid.id, 0), field(v.metric_group, 'OVERVIEW', 'OVERVIEW_CHART', 'FLOW_ANALYSIS'), d.display_order, v.id
+                order by coalesce(a.id, 0), field(v.content_type, 'IMAGE_TEXT', 'VIDEO'), coalesce(vid.id, 0), field(v.metric_group, 'OVERVIEW', 'OVERVIEW_CHART', 'FLOW_ANALYSIS'), d.display_order, v.id
                 """, topicId);
     }
 
@@ -232,7 +235,6 @@ public class DataOperationMetricService {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private Map<String, Object> normalizedMetricValues(Object value) {
         if (!(value instanceof Map<?, ?> map)) return Map.of();
         LinkedHashMap<String, Object> result = new LinkedHashMap<>();
@@ -270,8 +272,6 @@ public class DataOperationMetricService {
             String marker = value.toUpperCase(Locale.ROOT);
             if (marker.contains("FLOW_ANALYSIS")) return "FLOW_ANALYSIS";
             if (marker.contains("OVERVIEW_CHART")) return "OVERVIEW_CHART";
-            if (marker.contains("DOUYIN_FLOW_ANALYSIS")) return "FLOW_ANALYSIS";
-            if (marker.contains("DOUYIN_OVERVIEW_CHART")) return "OVERVIEW_CHART";
         }
         return "OVERVIEW";
     }
@@ -293,31 +293,48 @@ public class DataOperationMetricService {
     }
 
     private void seedDefinitions(String platform, String contentType) {
-        seed(platform, contentType, "OVERVIEW", "view_count", "播放量", "次", 10, true);
+        clearDefinitions(platform, contentType);
+        if ("DOUYIN".equals(platform) && "IMAGE_TEXT".equals(contentType)) {
+            seed(platform, contentType, "OVERVIEW", "view_count", "播放量", "次", 10, true);
+            seed(platform, contentType, "OVERVIEW", "like_count", "点赞量", "次", 20, true);
+            seed(platform, contentType, "OVERVIEW", "comment_count", "评论量", "次", 30, true);
+            seed(platform, contentType, "OVERVIEW", "favorite_count", "收藏量", "次", 40, true);
+            seed(platform, contentType, "OVERVIEW", "copy_expand_rate", "文案展开率", "%", 50, true);
+            seed(platform, contentType, "OVERVIEW_CHART", "follower_gain", "涨粉量", "人", 10, true);
+            seed(platform, contentType, "FLOW_ANALYSIS", "cover_click_rate", "封面点击率", "%", 10, true);
+            seed(platform, contentType, "FLOW_ANALYSIS", "copy_expand_rate", "文案展开率", "%", 20, true);
+            seed(platform, contentType, "FLOW_ANALYSIS", "copy_finish_rate", "文案完读率", "%", 30, true);
+            seed(platform, contentType, "FLOW_ANALYSIS", "comment_enter_rate", "评论进入率", "%", 40, true);
+            return;
+        }
+        if ("DOUYIN".equals(platform) && "VIDEO".equals(contentType)) {
+            seed(platform, contentType, "OVERVIEW", "view_count", "播放量", "次", 10, true);
+            seed(platform, contentType, "OVERVIEW", "like_count", "点赞量", "次", 20, true);
+            seed(platform, contentType, "OVERVIEW", "comment_count", "评论量", "次", 30, true);
+            seed(platform, contentType, "OVERVIEW", "favorite_count", "收藏量", "次", 40, true);
+            seed(platform, contentType, "OVERVIEW", "completion_rate", "完播率", "%", 50, true);
+            seed(platform, contentType, "OVERVIEW", "five_second_completion_rate", "5s完播率", "%", 60, true);
+            seed(platform, contentType, "OVERVIEW_CHART", "follower_gain", "涨粉量", "人", 10, true);
+            seed(platform, contentType, "FLOW_ANALYSIS", "completion_rate", "完播率", "%", 10, true);
+            seed(platform, contentType, "FLOW_ANALYSIS", "five_second_completion_rate", "5s完播率", "%", 20, true);
+            seed(platform, contentType, "FLOW_ANALYSIS", "comment_rate", "评论率", "%", 30, true);
+            seed(platform, contentType, "FLOW_ANALYSIS", "share_rate", "分享率", "%", 40, true);
+            return;
+        }
+        seed(platform, contentType, "OVERVIEW", "view_count", "浏览量", "次", 10, true);
         seed(platform, contentType, "OVERVIEW", "like_count", "点赞量", "次", 20, true);
         seed(platform, contentType, "OVERVIEW", "comment_count", "评论量", "次", 30, true);
-        seed(platform, contentType, "OVERVIEW", "share_count", "分享量", "次", 40, false);
-        seed(platform, contentType, "OVERVIEW", "favorite_count", "收藏量", "次", 50, true);
-        seed(platform, contentType, "OVERVIEW", "completion_rate", "完播率", "%", 60, true);
-        seed(platform, contentType, "OVERVIEW", "skip_rate", "划走率", "%", 70, false);
-        seed(platform, contentType, "OVERVIEW_CHART", "trend_values", "趋势曲线数值", null, 10, false);
-        seed(platform, contentType, "OVERVIEW_CHART", "follower_gain", "涨粉量", "人", 20, true);
-        seed(platform, contentType, "OVERVIEW_CHART", "follower_loss", "脱粉量", "人", 30, false);
-        seed(platform, contentType, "OVERVIEW_CHART", "fan_view_ratio", "粉丝播放占比", "%", 40, true);
-        seed(platform, contentType, "OVERVIEW_CHART", "hourly_chart_values", "小时图表数据", null, 50, false);
-        seed(platform, contentType, "OVERVIEW_CHART", "daily_chart_values", "每日图表数据", null, 60, false);
-        seed(platform, contentType, "FLOW_ANALYSIS", "traffic_uplift_rate", "播放量较往期上涨", "%", 10, false);
-        seed(platform, contentType, "FLOW_ANALYSIS", "view_count", "播放量", "次", 20, false);
-        seed(platform, contentType, "FLOW_ANALYSIS", "cover_click_rate", "封面点击率", "%", 30, false);
-        seed(platform, contentType, "FLOW_ANALYSIS", "copy_expand_rate", "文案展开率", "%", 40, false);
-        seed(platform, contentType, "FLOW_ANALYSIS", "skip_rate", "划走率", "%", 50, false);
-        seed(platform, contentType, "FLOW_ANALYSIS", "avg_image_view_count", "平均浏览图片数", "张", 60, false);
-        seed(platform, contentType, "FLOW_ANALYSIS", "copy_finish_rate", "文案完读率", "%", 70, false);
-        seed(platform, contentType, "FLOW_ANALYSIS", "comment_enter_rate", "评论进入率", "%", 80, false);
-        seed(platform, contentType, "FLOW_ANALYSIS", "comment_rate", "评论率", "%", 90, true);
-        seed(platform, contentType, "FLOW_ANALYSIS", "share_rate", "分享率", "%", 100, true);
-        seed(platform, contentType, "FLOW_ANALYSIS", "completion_rate", "完播率", "%", 110, true);
-        seed(platform, contentType, "FLOW_ANALYSIS", "five_second_completion_rate", "5s完播率", "%", 120, true);
+        seed(platform, contentType, "OVERVIEW", "favorite_count", "收藏量", "次", 40, true);
+        seed(platform, contentType, "OVERVIEW_CHART", "follower_gain", "涨粉量", "人", 10, false);
+        seed(platform, contentType, "FLOW_ANALYSIS", "interaction_rate", "互动率", "%", 10, false);
+    }
+
+    private void clearDefinitions(String platform, String contentType) {
+        jdbc.update("update data_operation_metric_definition set enabled = 0 where platform_code = ? and content_type = ?", platform, contentType);
+    }
+
+    private void disableUnsupportedPlatform(String platform) {
+        jdbc.update("update data_operation_metric_definition set enabled = 0 where platform_code = ?", platform);
     }
 
     private void seed(String platform, String contentType, String group, String key, String label, String unit, int order, boolean required) {
@@ -337,12 +354,11 @@ public class DataOperationMetricService {
                     where table_schema = database() and table_name = ? and column_name = ?
                     """, Integer.class, table, column);
             if (count != null && count == 0) jdbc.execute(ddl);
-        } catch (RuntimeException ignore) {
-            // 兼容已有库、低权限库和重复执行场景。
-        }
+        } catch (RuntimeException ignore) {}
     }
 
     private String queryString(String sql, Object... args) {
+        if (args == null || args.length == 0 || args[0] == null) return null;
         List<Map<String, Object>> rows = jdbc.queryForList(sql, args);
         if (rows.isEmpty()) return null;
         Object value = rows.get(0).values().stream().findFirst().orElse(null);
@@ -357,9 +373,7 @@ public class DataOperationMetricService {
     }
 
     private String nonBlank(String... values) {
-        for (String value : values) {
-            if (value != null && !value.isBlank()) return value;
-        }
+        for (String value : values) if (value != null && !value.isBlank()) return value;
         return null;
     }
 
@@ -375,18 +389,12 @@ public class DataOperationMetricService {
         }
     }
 
-    private String stringValue(Object value) {
-        return value == null ? null : String.valueOf(value);
-    }
+    private String stringValue(Object value) { return value == null ? null : String.valueOf(value); }
 
     private Long numberToLong(Object value) {
         if (value instanceof Number number) return number.longValue();
         if (value == null) return null;
-        try {
-            return Long.parseLong(String.valueOf(value));
-        } catch (NumberFormatException ex) {
-            return null;
-        }
+        try { return Long.parseLong(String.valueOf(value)); } catch (NumberFormatException ex) { return null; }
     }
 
     private record MetricDefinition(String metricKey, String metricLabel, String metricUnit) {}
