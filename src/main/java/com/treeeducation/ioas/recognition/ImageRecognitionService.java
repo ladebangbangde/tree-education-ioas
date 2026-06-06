@@ -57,6 +57,9 @@ public class ImageRecognitionService {
         if (!"COVER".equalsIgnoreCase(assetType) && !"DATA_SCREENSHOT".equalsIgnoreCase(assetType)) {
             throw BusinessException.badRequest("该文件不是可识别的数据图片");
         }
+        if ("DATA_SCREENSHOT".equalsIgnoreCase(assetType)) {
+            requireAccountConfirmed(asset);
+        }
         String objectKey = stringValue(asset.get("object_key"));
         String bucketName = stringValue(asset.get("bucket_name"));
         String fileName = stringValue(asset.get("original_filename"));
@@ -132,6 +135,19 @@ public class ImageRecognitionService {
         metricService.upsertAssetMetrics(asset, extracted, normalizedPlatform, resolveContentType(asset));
         DataOperationVideoHierarchyService.HierarchyRef ref = hierarchyService.upsertForRecognizedAsset(asset, response.result(), normalizedPlatform, resolveContentType(asset), payloadJson);
         hierarchyService.attachMetrics(assetId, ref.accountId(), ref.videoId());
+    }
+
+    private void requireAccountConfirmed(Map<String, Object> asset) {
+        Long topicId = numberToLong(asset.get("platform_topic_id"));
+        if (topicId == null) throw BusinessException.badRequest("图片缺少子主题归属");
+        try {
+            List<Map<String, Object>> rows = jdbc.queryForList("select account_confirmed_flag from data_operation_platform_topic where id = ?", topicId);
+            Object value = rows.isEmpty() ? null : rows.get(0).get("account_confirmed_flag");
+            Long flag = numberToLong(value);
+            if (flag != null && flag == 1) return;
+        } catch (RuntimeException ignored) {
+        }
+        throw BusinessException.badRequest("请先上传账号主页并确认账号名称/平台账号ID，再上传或识别图文/视频数据");
     }
 
     private String resolveAssetGroup(Map<String, Object> asset) {
@@ -230,17 +246,11 @@ public class ImageRecognitionService {
         }
     }
 
-    private String stringValue(Object value) {
-        return value == null ? null : String.valueOf(value);
-    }
+    private String stringValue(Object value) { return value == null ? null : String.valueOf(value); }
 
     private Long numberToLong(Object value) {
         if (value instanceof Number number) return number.longValue();
         if (value == null) return null;
-        try {
-            return Long.parseLong(String.valueOf(value));
-        } catch (NumberFormatException ex) {
-            return null;
-        }
+        try { return Long.parseLong(String.valueOf(value)); } catch (NumberFormatException ex) { return null; }
     }
 }
