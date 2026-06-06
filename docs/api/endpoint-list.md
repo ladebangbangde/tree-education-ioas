@@ -34,6 +34,11 @@ All endpoints are under `/api/v1` and use `Authorization: Bearer <token>` except
 
 ## Data Recognition
 - `POST /data-recognition/screenshots/recognize` with multipart fields `file`, `platform`, `scene`, `contentType=AUTO|IMAGE_TEXT|VIDEO|ACCOUNT_OVERVIEW`
+- `POST /data-recognition/screenshots/recognize-and-save` with multipart fields `file`, `platform`, `scene`, `contentType=AUTO|IMAGE_TEXT|VIDEO|ACCOUNT_OVERVIEW`
+- `GET /data-recognition/records?status=&contentType=&pageNum=&pageSize=`
+- `GET /data-recognition/records/{id}`
+- `PATCH /data-recognition/records/{id}/confirm`
+- `PATCH /data-recognition/records/{id}/reject`
 
 ## Leads
 - `GET /leads?tab=unassigned|assigned|mine&keyword=&relatedPackageId=&operatorId=&pageNum=&pageSize=`
