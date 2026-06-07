@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 @Service
 public class ImageRecognitionService {
@@ -138,16 +139,66 @@ public class ImageRecognitionService {
     }
 
     private void requireAccountConfirmed(Map<String, Object> asset) {
-        Long topicId = numberToLong(asset.get("platform_topic_id"));
+        Long assetTopicId = numberToLong(asset.get("platform_topic_id"));
+        Long contentId = numberToLong(asset.get("content_id"));
+        Long contentTopicId = null;
+        if (contentId != null) {
+            List<Map<String, Object>> contentRows = jdbc.queryForList("select platform_topic_id from data_operation_content where id = ?", contentId);
+            if (!contentRows.isEmpty()) contentTopicId = numberToLong(contentRows.get(0).get("platform_topic_id"));
+        }
+        Long topicId = firstNonNull(contentTopicId, assetTopicId);
         if (topicId == null) throw BusinessException.badRequest("图片缺少子主题归属");
-        try {
-            List<Map<String, Object>> rows = jdbc.queryForList("select account_confirmed_flag from data_operation_platform_topic where id = ?", topicId);
-            Object value = rows.isEmpty() ? null : rows.get(0).get("account_confirmed_flag");
-            Long flag = numberToLong(value);
-            if (flag != null && flag == 1) return;
-        } catch (RuntimeException ignored) {
+
+        if (isTopicAccountConfirmed(topicId)) {
+            if (!Objects.equals(assetTopicId, topicId)) {
+                Long assetId = numberToLong(asset.get("id"));
+                if (assetId != null) {
+                    jdbc.update("update data_operation_asset set platform_topic_id = ?, updated_at = current_timestamp(6) where id = ?", topicId, assetId);
+                    asset.put("platform_topic_id", topicId);
+                }
+            }
+            return;
         }
         throw BusinessException.badRequest("请先上传账号主页并确认账号名称/平台账号ID，再上传或识别图文/视频数据");
+    }
+
+    private boolean isTopicAccountConfirmed(Long topicId) {
+        try {
+            List<Map<String, Object>> rows = jdbc.queryForList("""
+                    select account_confirmed_flag, ocr_account_name, ocr_platform_user_id, confirmed_account_id
+                    from data_operation_platform_topic
+                    where id = ?
+                    """, topicId);
+            if (!rows.isEmpty()) {
+                Map<String, Object> topic = rows.get(0);
+                Long flag = numberToLong(topic.get("account_confirmed_flag"));
+                if (flag != null && flag == 1) return true;
+                if (hasText(topic.get("ocr_account_name")) && hasText(topic.get("ocr_platform_user_id"))) {
+                    jdbc.update("update data_operation_platform_topic set account_confirmed_flag = 1, updated_at = current_timestamp(6) where id = ?", topicId);
+                    return true;
+                }
+                if (numberToLong(topic.get("confirmed_account_id")) != null) {
+                    jdbc.update("update data_operation_platform_topic set account_confirmed_flag = 1, updated_at = current_timestamp(6) where id = ?", topicId);
+                    return true;
+                }
+            }
+        } catch (RuntimeException ignored) {
+        }
+        try {
+            Integer count = jdbc.queryForObject("""
+                    select count(*)
+                    from data_operation_account
+                    where platform_topic_id = ?
+                      and account_name is not null and trim(account_name) <> ''
+                      and platform_user_id is not null and trim(platform_user_id) <> ''
+                    """, Integer.class, topicId);
+            if (count != null && count > 0) {
+                jdbc.update("update data_operation_platform_topic set account_confirmed_flag = 1, updated_at = current_timestamp(6) where id = ?", topicId);
+                return true;
+            }
+        } catch (RuntimeException ignored) {
+        }
+        return false;
     }
 
     private String resolveAssetGroup(Map<String, Object> asset) {
@@ -229,6 +280,7 @@ public class ImageRecognitionService {
         if (value == null || value.isBlank()) return null;
         String scene = value.trim().toUpperCase(Locale.ROOT);
         if ("CONTENT_DETAIL".equals(scene) || "CONTENT_LIST".equals(scene) || "ACCOUNT_OVERVIEW".equals(scene)) return scene;
+        if ("DOUYIN_OVERVIEW".equals(scene) || "DOUYIN_OVERVIEW_CHART".equals(scene) || "DOUYIN_FLOW_ANALYSIS".equals(scene)) return scene;
         throw BusinessException.badRequest("不支持的识别场景：" + value);
     }
 
@@ -247,6 +299,15 @@ public class ImageRecognitionService {
     }
 
     private String stringValue(Object value) { return value == null ? null : String.valueOf(value); }
+
+    private boolean hasText(Object value) {
+        String text = stringValue(value);
+        return text != null && !text.isBlank() && !"null".equalsIgnoreCase(text.trim());
+    }
+
+    private Long firstNonNull(Long first, Long second) {
+        return first != null ? first : second;
+    }
 
     private Long numberToLong(Object value) {
         if (value instanceof Number number) return number.longValue();
