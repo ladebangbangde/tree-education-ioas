@@ -24,6 +24,10 @@ services:
       IOAS_MINIO_SECRET_KEY: ${IOAS_MINIO_SECRET_KEY:-minioadmin123}
       IOAS_STORAGE_BUCKET: ${IOAS_STORAGE_BUCKET:-ioas-assets}
 
+      # Internal Docker-network recognition service. Do not use host.docker.internal on Linux.
+      IOAS_RECOGNITION_BASE_URL: ${IOAS_RECOGNITION_BASE_URL:-http://tree-education-datacollecting-paddle:18083}
+      IOAS_RECOGNITION_RECOGNIZE_PATH: ${IOAS_RECOGNITION_RECOGNIZE_PATH:-/api/v1/recognize}
+
       # Allow GB-level media/document uploads through Spring Boot multipart handling.
       SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:-5GB}
       SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:-5GB}
