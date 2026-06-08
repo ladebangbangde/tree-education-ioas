@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -35,7 +36,19 @@ public class DataOperationAccountConfirmController {
         }
         Map<String, Object> topic = queryOne("select * from data_operation_platform_topic where id = ?", topicId);
         String platformCode = stringValue(topic.get("platform_code"));
-        Long accountId = hierarchyService.upsertAccountFromCover(topicId, platformCode, accountName, platformUserId);
+        Long packageId = numberToLong(topic.get("package_id"));
+        Long accountId = findPackageAccount(packageId, platformCode, platformUserId);
+        if (accountId == null) {
+            accountId = hierarchyService.upsertAccountFromCover(topicId, platformCode, accountName, platformUserId);
+        } else {
+            jdbc.update("""
+                    update data_operation_account
+                    set account_name = ?, recognition_status = 'SUCCESS', updated_at = current_timestamp(6)
+                    where id = ?
+                    """, accountName, accountId);
+            attachTopicCoverToAccount(topic, accountId);
+        }
+        reuseAccountCoverForTopic(topicId, accountId);
         jdbc.update("""
                 update data_operation_platform_topic
                 set ocr_status = 'success',
@@ -60,10 +73,53 @@ public class DataOperationAccountConfirmController {
         return ApiResponse.ok(result);
     }
 
+    private Long findPackageAccount(Long packageId, String platformCode, String platformUserId) {
+        if (packageId == null || platformCode == null || platformUserId == null) return null;
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+                select id
+                from data_operation_account
+                where topic_package_id = ? and platform_code = ? and platform_user_id = ?
+                order by id asc
+                limit 1
+                """, packageId, platformCode, platformUserId);
+        if (rows.isEmpty()) return null;
+        return numberToLong(rows.get(0).get("id"));
+    }
+
+    private void attachTopicCoverToAccount(Map<String, Object> topic, Long accountId) {
+        Long coverAssetId = numberToLong(topic.get("cover_asset_id"));
+        String coverUrl = stringValue(topic.get("cover_image_url"));
+        if (coverAssetId == null || accountId == null) return;
+        jdbc.update("""
+                update data_operation_account
+                set cover_asset_id = ?, cover_image_url = ?, updated_at = current_timestamp(6)
+                where id = ?
+                """, coverAssetId, coverUrl, accountId);
+        jdbc.update("update data_operation_asset set account_id = ? where id = ?", accountId, coverAssetId);
+    }
+
+    private void reuseAccountCoverForTopic(Long topicId, Long accountId) {
+        if (topicId == null || accountId == null) return;
+        List<Map<String, Object>> rows = jdbc.queryForList("select cover_asset_id, cover_image_url from data_operation_account where id = ?", accountId);
+        if (rows.isEmpty()) return;
+        Long coverAssetId = numberToLong(rows.get(0).get("cover_asset_id"));
+        String coverUrl = stringValue(rows.get(0).get("cover_image_url"));
+        if (coverAssetId == null) return;
+        jdbc.update("""
+                update data_operation_platform_topic
+                set cover_asset_id = coalesce(cover_asset_id, ?),
+                    cover_image_url = coalesce(cover_image_url, ?),
+                    updated_at = current_timestamp(6)
+                where id = ?
+                """, coverAssetId, coverUrl, topicId);
+    }
+
     private void ensureColumns() {
         ensureColumn("data_operation_platform_topic", "account_confirmed_flag", "alter table data_operation_platform_topic add column account_confirmed_flag tinyint(1) not null default 0 after ocr_platform_user_id");
         ensureColumn("data_operation_platform_topic", "account_confirmed_at", "alter table data_operation_platform_topic add column account_confirmed_at datetime(6) null after account_confirmed_flag");
         ensureColumn("data_operation_platform_topic", "confirmed_account_id", "alter table data_operation_platform_topic add column confirmed_account_id bigint null after account_confirmed_at");
+        ensureColumn("data_operation_account", "cover_asset_id", "alter table data_operation_account add column cover_asset_id bigint null after platform_user_id");
+        ensureColumn("data_operation_account", "cover_image_url", "alter table data_operation_account add column cover_image_url varchar(500) null after cover_asset_id");
     }
 
     private void ensureColumn(String table, String column, String ddl) {
@@ -83,6 +139,12 @@ public class DataOperationAccountConfirmController {
         if (value == null) return null;
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private Long numberToLong(Object value) {
+        if (value instanceof Number number) return number.longValue();
+        if (value == null) return null;
+        try { return Long.parseLong(String.valueOf(value)); } catch (NumberFormatException ex) { return null; }
     }
 
     private String stringValue(Object value) {
