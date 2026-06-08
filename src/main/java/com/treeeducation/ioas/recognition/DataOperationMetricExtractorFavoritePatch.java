@@ -4,6 +4,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,11 +29,16 @@ public class DataOperationMetricExtractorFavoritePatch extends DataOperationMetr
         }
 
         Map<String, Object> result = response == null || response.result() == null ? Map.of() : response.result();
+        String rawText = rawText(response);
         patchKeyValueMetrics(patched, mapValue(result.get("keyValueMetrics")));
         patchVideoStats(patched, mapValue(result.get("videoStats")));
         patchGenericMetrics(patched, mapValue(result.get("metrics")));
 
-        String favorite = extractFavoriteFromRawText(rawText(response));
+        if (isOverviewPage(assetGroup, result)) {
+            patchOverviewTablesFromRawText(patched, lines(rawText));
+        }
+
+        String favorite = extractFavoriteFromRawText(rawText);
         if (favorite != null && !favorite.isBlank()) {
             patched.put("收藏量", metricValue(favorite, "ocr.table.favorite.patch"));
         }
@@ -82,6 +88,62 @@ public class DataOperationMetricExtractorFavoritePatch extends DataOperationMetr
         putIfPresent(metrics, "涨粉量", first(generic, "followerGain"), "ocr.metrics.followerGain");
     }
 
+    private void patchOverviewTablesFromRawText(LinkedHashMap<String, Object> metrics, List<String> lines) {
+        List<String> primary = valuesAfterCluster(lines, List.of("播放量", "点赞量", "评论量"), 3);
+        if (primary.size() >= 3) {
+            List<String> countValues = primary.stream().filter(v -> !looksPercent(v)).limit(3).toList();
+            if (countValues.size() >= 3) {
+                List<String> sorted = countValues.stream()
+                        .sorted(Comparator.comparingDouble(this::numericValue).reversed())
+                        .toList();
+                putIfPresent(metrics, "播放量", sorted.get(0), "ocr.raw.overview.primary");
+                putIfPresent(metrics, "点赞量", sorted.get(1), "ocr.raw.overview.primary");
+                putIfPresent(metrics, "评论量", sorted.get(2), "ocr.raw.overview.primary");
+            }
+        }
+
+        List<String> secondary = valuesAfterCluster(lines, List.of("分享量", "收藏量", "弹幕量"), 3);
+        if (secondary.size() < 3) secondary = valuesAfterCluster(lines, List.of("分享量", "收藏量", "划走率"), 3);
+        if (secondary.size() >= 3) {
+            putIfPresent(metrics, "分享量", secondary.get(0), "ocr.raw.overview.secondary");
+            putIfPresent(metrics, "收藏量", secondary.get(1), "ocr.raw.overview.secondary");
+        }
+
+        List<String> completion = valuesAfterCluster(lines, List.of("完播率", "2s跳出率"), 2);
+        if (completion.size() >= 1 && looksPercent(completion.get(0))) {
+            putIfPresent(metrics, "完播率", completion.get(0), "ocr.raw.overview.completion");
+        }
+    }
+
+    private List<String> valuesAfterCluster(List<String> lines, List<String> labels, int desired) {
+        if (lines == null || lines.isEmpty()) return List.of();
+        for (int i = 0; i < lines.size(); i++) {
+            int lastLabelIndex = -1;
+            boolean allFound = true;
+            for (String label : labels) {
+                int index = nextLabelIndex(lines, i, label, 8);
+                if (index < 0) {
+                    allFound = false;
+                    break;
+                }
+                lastLabelIndex = Math.max(lastLabelIndex, index);
+            }
+            if (!allFound || lastLabelIndex < 0) continue;
+            List<String> values = numbersAfter(lines, lastLabelIndex + 1, desired);
+            if (values.size() >= desired) return values;
+        }
+        return List.of();
+    }
+
+    private boolean isOverviewPage(String assetGroup, Map<String, Object> result) {
+        String group = assetGroup == null ? "" : assetGroup.toUpperCase();
+        String pageType = String.valueOf(result.getOrDefault("pageType", "")).toUpperCase();
+        return !group.contains("FLOW_ANALYSIS")
+                && !group.contains("OVERVIEW_CHART")
+                && !pageType.contains("FLOW_ANALYSIS")
+                && !pageType.contains("CHART");
+    }
+
     private Object first(Map<String, Object> map, String... keys) {
         if (map == null || map.isEmpty()) return null;
         for (String key : keys) {
@@ -122,6 +184,9 @@ public class DataOperationMetricExtractorFavoritePatch extends DataOperationMetr
     }
 
     private String favoriteFromSequentialLines(List<String> lines) {
+        List<String> secondary = valuesAfterCluster(lines, List.of("分享量", "收藏量", "弹幕量"), 3);
+        if (secondary.size() < 3) secondary = valuesAfterCluster(lines, List.of("分享量", "收藏量", "划走率"), 3);
+        if (secondary.size() >= 2) return secondary.get(1);
         for (int i = 0; i < lines.size(); i++) {
             if (!same(lines.get(i), "分享量")) continue;
             int favoriteLabel = nextLabelIndex(lines, i + 1, "收藏量", 5);
@@ -175,7 +240,7 @@ public class DataOperationMetricExtractorFavoritePatch extends DataOperationMetr
     }
 
     private boolean isLabel(String line) {
-        return same(line, "播放量") || same(line, "点赞量") || same(line, "评论量") || same(line, "分享量") || same(line, "收藏量") || same(line, "弹幕量") || same(line, "划走率") || same(line, "完播率") || same(line, "5s完播率") || same(line, "5秒完播率");
+        return same(line, "播放量") || same(line, "点赞量") || same(line, "评论量") || same(line, "分享量") || same(line, "收藏量") || same(line, "弹幕量") || same(line, "划走率") || same(line, "完播率") || same(line, "2s跳出率") || same(line, "5s完播率") || same(line, "5秒完播率");
     }
 
     private boolean same(String a, String b) {
@@ -184,6 +249,20 @@ public class DataOperationMetricExtractorFavoritePatch extends DataOperationMetr
 
     private String clean(String value) {
         return value == null ? "" : value.replaceAll("[\\s:_：/\\-+>√]", "").trim();
+    }
+
+    private boolean looksPercent(String value) {
+        return value != null && value.contains("%");
+    }
+
+    private double numericValue(String value) {
+        if (value == null || value.isBlank()) return 0;
+        String cleaned = value.replace(",", "").replace("%", "").replace("万", "0000").replace("w", "0000").replace("W", "0000").trim();
+        try {
+            return Double.parseDouble(cleaned);
+        } catch (NumberFormatException ex) {
+            return 0;
+        }
     }
 
     private List<String> lines(String text) {
