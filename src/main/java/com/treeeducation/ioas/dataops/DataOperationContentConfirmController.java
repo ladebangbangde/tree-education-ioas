@@ -38,6 +38,7 @@ public class DataOperationContentConfirmController {
     public ApiResponse<Map<String, Object>> confirmCurrentContent(@PathVariable Long topicId,
                                                                   @RequestBody ConfirmCurrentContentRequest request) {
         if (request == null) throw BusinessException.badRequest("请求不能为空");
+        ensureColumns();
         Map<String, Object> topic = queryOne("select * from data_operation_platform_topic where id = ?", topicId);
         if (topic.isEmpty()) throw BusinessException.notFound("平台子主题不存在");
         Long packageId = numberToLong(topic.get("package_id"));
@@ -65,9 +66,10 @@ public class DataOperationContentConfirmController {
                         content_title = ?,
                         content_summary = ?,
                         content_date = ?,
+                        content_type = ?,
                         updated_at = current_timestamp(6)
                     where id = ?
-                    """, platformCode, title, request.contentSummary(), Date.valueOf(contentDate), existingId);
+                    """, platformCode, title, request.contentSummary(), Date.valueOf(contentDate), contentType, existingId);
             id = existingId;
         } else {
             KeyHolder keyHolder = new GeneratedKeyHolder();
@@ -93,7 +95,45 @@ public class DataOperationContentConfirmController {
                     updated_at = current_timestamp(6)
                 where id = ?
                 """, contentType, title, topicId);
+        synchronizeContentType(topicId, id, contentType);
         return ApiResponse.ok(queryOne("select * from data_operation_content where id = ?", id));
+    }
+
+    private void synchronizeContentType(Long topicId, Long contentId, String contentType) {
+        jdbc.update("update data_operation_content set content_type = ?, updated_at = current_timestamp(6) where platform_topic_id = ?", contentType, topicId);
+        jdbc.update("update data_operation_asset set content_type = ? where platform_topic_id = ? and asset_type = 'DATA_SCREENSHOT'", contentType, topicId);
+        jdbc.update("update data_operation_video set content_type = ?, updated_at = current_timestamp(6) where platform_topic_id = ?", contentType, topicId);
+        jdbc.update("update data_operation_metric_value set content_type = ?, updated_at = current_timestamp(6) where platform_topic_id = ?", contentType, topicId);
+        jdbc.update("""
+                delete mv
+                from data_operation_metric_value mv
+                left join data_operation_metric_definition d
+                  on d.platform_code = mv.platform_code
+                 and d.content_type = mv.content_type
+                 and d.metric_group = mv.metric_group
+                 and d.metric_key = mv.metric_key
+                 and d.enabled = 1
+                where mv.platform_topic_id = ?
+                  and d.id is null
+                """, topicId);
+        jdbc.update("""
+                update data_operation_asset
+                set content_id = ?
+                where platform_topic_id = ? and asset_type = 'DATA_SCREENSHOT'
+                """, contentId, topicId);
+    }
+
+    private void ensureColumns() {
+        ensureColumn("data_operation_content", "content_type", "alter table data_operation_content add column content_type varchar(32) not null default 'IMAGE_TEXT' after platform_code");
+        ensureColumn("data_operation_asset", "content_type", "alter table data_operation_asset add column content_type varchar(32) null after asset_type");
+        ensureColumn("data_operation_platform_topic", "content_type", "alter table data_operation_platform_topic add column content_type varchar(32) null after platform_name");
+    }
+
+    private void ensureColumn(String table, String column, String ddl) {
+        try {
+            Integer count = jdbc.queryForObject("select count(*) from information_schema.columns where table_schema = database() and table_name = ? and column_name = ?", Integer.class, table, column);
+            if (count != null && count == 0) jdbc.execute(ddl);
+        } catch (RuntimeException ignored) {}
     }
 
     private String normalizeContentType(String value) {
