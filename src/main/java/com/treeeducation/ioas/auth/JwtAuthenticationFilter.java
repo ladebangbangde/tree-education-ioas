@@ -12,10 +12,13 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.regex.Pattern;
 
 /** Reads Bearer JWT tokens from requests and installs Spring Security authentication. */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+    private static final Pattern DATA_OPERATION_ASSET_FILE = Pattern.compile("^/api/v1/data-ops/assets/\\d+/file$");
+
     private final JwtService jwtService;
     private final UserRepository userRepository;
 
@@ -64,6 +67,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         return "/".equals(path)
                 || "/health".equals(path)
                 || "/api/v1/auth/login".equals(path)
+                || DATA_OPERATION_ASSET_FILE.matcher(path).matches()
                 || path.startsWith("/api/v1/public/")
                 || "/api/official/leads".equals(path)
                 || "/api/official/leads/".equals(path)
