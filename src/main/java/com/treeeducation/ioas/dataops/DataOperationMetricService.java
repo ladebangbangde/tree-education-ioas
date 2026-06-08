@@ -99,7 +99,7 @@ public class DataOperationMetricService {
         String effectivePlatform = nonBlank(platformCode, queryString("select platform_code from data_operation_platform_topic where id = ?", topicId), "DOUYIN");
         String effectiveContentType = nonBlank(contentType, queryString("select content_type from data_operation_content where id = ?", contentId), queryString("select content_type from data_operation_platform_topic where id = ?", topicId), "IMAGE_TEXT");
 
-        replaceSameDataPageMetrics(topicId, contentId, assetId, group);
+        replaceSameDataPageMetrics(topicId, assetId, group);
         ensureMetricRows(packageId, topicId, contentId, assetId, effectivePlatform, effectiveContentType, group);
 
         Map<String, Object> metrics = normalizedMetricValues(extractedPayload.get("metrics"));
@@ -150,19 +150,21 @@ public class DataOperationMetricService {
                        v.recognized_at as recognizedAt,
                        d.display_order as displayOrder
                 from data_operation_metric_value v
-                left join data_operation_account a on a.id = v.account_id
-                left join data_operation_video vid on vid.id = v.video_id
-                left join data_operation_metric_definition d
+                join data_operation_metric_definition d
                   on d.platform_code = v.platform_code
                  and d.content_type = v.content_type
                  and d.metric_group = v.metric_group
                  and d.metric_key = v.metric_key
+                 and d.enabled = 1
+                left join data_operation_platform_topic t on t.id = v.platform_topic_id
+                left join data_operation_account a on a.id = v.account_id
+                left join data_operation_video vid on vid.id = v.video_id
                 where v.platform_topic_id = ?
+                  and (t.content_type is null or t.content_type = '' or v.content_type = t.content_type)
                   and not exists (
                       select 1
                       from data_operation_metric_value newer
                       where newer.platform_topic_id = v.platform_topic_id
-                        and coalesce(newer.content_id, 0) = coalesce(v.content_id, 0)
                         and newer.metric_group = v.metric_group
                         and newer.metric_key = v.metric_key
                         and coalesce(newer.asset_id, 0) > coalesce(v.asset_id, 0)
@@ -218,27 +220,15 @@ public class DataOperationMetricService {
         return result;
     }
 
-    private void replaceSameDataPageMetrics(Long topicId, Long contentId, Long assetId, String group) {
+    private void replaceSameDataPageMetrics(Long topicId, Long assetId, String group) {
         if (topicId == null || assetId == null || group == null) return;
-        if (contentId == null) {
-            jdbc.update("""
-                    delete from data_operation_metric_value
-                    where platform_topic_id = ?
-                      and content_id is null
-                      and metric_group = ?
-                      and asset_id is not null
-                      and asset_id <> ?
-                    """, topicId, group, assetId);
-            return;
-        }
         jdbc.update("""
                 delete from data_operation_metric_value
                 where platform_topic_id = ?
-                  and content_id = ?
                   and metric_group = ?
                   and asset_id is not null
                   and asset_id <> ?
-                """, topicId, contentId, group, assetId);
+                """, topicId, group, assetId);
     }
 
     private void ensureMetricRows(Long packageId, Long topicId, Long contentId, Long assetId, String platformCode, String contentType, String group) {
@@ -351,12 +341,9 @@ public class DataOperationMetricService {
             seed(platform, contentType, "OVERVIEW", "comment_count", "评论量", "次", 30, true);
             seed(platform, contentType, "OVERVIEW", "favorite_count", "收藏量", "次", 40, true);
             seed(platform, contentType, "OVERVIEW", "completion_rate", "完播率", "%", 50, true);
-            seed(platform, contentType, "OVERVIEW", "five_second_completion_rate", "5s完播率", "%", 60, true);
             seed(platform, contentType, "OVERVIEW_CHART", "follower_gain", "涨粉量", "人", 10, true);
             seed(platform, contentType, "FLOW_ANALYSIS", "completion_rate", "完播率", "%", 10, true);
             seed(platform, contentType, "FLOW_ANALYSIS", "five_second_completion_rate", "5s完播率", "%", 20, true);
-            seed(platform, contentType, "FLOW_ANALYSIS", "comment_rate", "评论率", "%", 30, true);
-            seed(platform, contentType, "FLOW_ANALYSIS", "share_rate", "分享率", "%", 40, true);
             return;
         }
         seed(platform, contentType, "OVERVIEW", "view_count", "浏览量", "次", 10, true);
