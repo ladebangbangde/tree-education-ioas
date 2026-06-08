@@ -99,6 +99,7 @@ public class DataOperationMetricService {
         String effectivePlatform = nonBlank(platformCode, queryString("select platform_code from data_operation_platform_topic where id = ?", topicId), "DOUYIN");
         String effectiveContentType = nonBlank(contentType, queryString("select content_type from data_operation_content where id = ?", contentId), queryString("select content_type from data_operation_platform_topic where id = ?", topicId), "IMAGE_TEXT");
 
+        replaceSameDataPageMetrics(topicId, contentId, assetId, group);
         ensureMetricRows(packageId, topicId, contentId, assetId, effectivePlatform, effectiveContentType, group);
 
         Map<String, Object> metrics = normalizedMetricValues(extractedPayload.get("metrics"));
@@ -157,6 +158,15 @@ public class DataOperationMetricService {
                  and d.metric_group = v.metric_group
                  and d.metric_key = v.metric_key
                 where v.platform_topic_id = ?
+                  and not exists (
+                      select 1
+                      from data_operation_metric_value newer
+                      where newer.platform_topic_id = v.platform_topic_id
+                        and coalesce(newer.content_id, 0) = coalesce(v.content_id, 0)
+                        and newer.metric_group = v.metric_group
+                        and newer.metric_key = v.metric_key
+                        and coalesce(newer.asset_id, 0) > coalesce(v.asset_id, 0)
+                  )
                 order by coalesce(a.id, 0), field(v.content_type, 'IMAGE_TEXT', 'VIDEO'), coalesce(vid.id, 0), field(v.metric_group, 'OVERVIEW', 'OVERVIEW_CHART', 'FLOW_ANALYSIS'), d.display_order, v.id
                 """, topicId);
     }
@@ -169,11 +179,11 @@ public class DataOperationMetricService {
             result.put("color", "default");
             return result;
         }
-        List<Map<String, Object>> rows = jdbc.queryForList("select recognition_status, metric_value from data_operation_metric_value where platform_topic_id = ?", topicId);
+        List<Map<String, Object>> rows = listTopicMetrics(topicId);
         long total = rows.size();
-        long success = rows.stream().filter(row -> "SUCCESS".equalsIgnoreCase(stringValue(row.get("recognition_status")))).count();
-        long failed = rows.stream().filter(row -> "FAILED".equalsIgnoreCase(stringValue(row.get("recognition_status")))).count();
-        long nullCount = rows.stream().filter(row -> row.get("metric_value") == null).count();
+        long success = rows.stream().filter(row -> "SUCCESS".equalsIgnoreCase(stringValue(row.get("recognitionStatus")))).count();
+        long failed = rows.stream().filter(row -> "FAILED".equalsIgnoreCase(stringValue(row.get("recognitionStatus")))).count();
+        long nullCount = rows.stream().filter(row -> row.get("metricValue") == null).count();
         String status;
         String label;
         String color;
@@ -208,6 +218,29 @@ public class DataOperationMetricService {
         return result;
     }
 
+    private void replaceSameDataPageMetrics(Long topicId, Long contentId, Long assetId, String group) {
+        if (topicId == null || assetId == null || group == null) return;
+        if (contentId == null) {
+            jdbc.update("""
+                    delete from data_operation_metric_value
+                    where platform_topic_id = ?
+                      and content_id is null
+                      and metric_group = ?
+                      and asset_id is not null
+                      and asset_id <> ?
+                    """, topicId, group, assetId);
+            return;
+        }
+        jdbc.update("""
+                delete from data_operation_metric_value
+                where platform_topic_id = ?
+                  and content_id = ?
+                  and metric_group = ?
+                  and asset_id is not null
+                  and asset_id <> ?
+                """, topicId, contentId, group, assetId);
+    }
+
     private void ensureMetricRows(Long packageId, Long topicId, Long contentId, Long assetId, String platformCode, String contentType, String group) {
         List<Map<String, Object>> defs = jdbc.queryForList("""
                 select metric_key, metric_label, metric_unit
@@ -229,6 +262,11 @@ public class DataOperationMetricService {
                         content_type = values(content_type),
                         metric_label = values(metric_label),
                         metric_unit = values(metric_unit),
+                        metric_value = null,
+                        metric_numeric = null,
+                        recognition_status = 'PENDING',
+                        fail_reason = null,
+                        recognized_at = null,
                         updated_at = current_timestamp(6)
                     """, packageId, topicId, contentId, assetId, platformCode, contentType, group,
                     def.get("metric_key"), def.get("metric_label"), def.get("metric_unit"));
