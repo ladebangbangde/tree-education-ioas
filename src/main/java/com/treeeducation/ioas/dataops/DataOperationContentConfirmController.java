@@ -50,21 +50,42 @@ public class DataOperationContentConfirmController {
         if (title == null) throw BusinessException.badRequest("请确认内容标题");
         LocalDate contentDate = request.contentDate() == null ? LocalDate.now() : request.contentDate();
 
-        KeyHolder keyHolder = new GeneratedKeyHolder();
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("packageId", packageId)
-                .addValue("topicId", topicId)
-                .addValue("platformCode", platformCode)
-                .addValue("contentType", contentType)
-                .addValue("title", title)
-                .addValue("summary", request.contentSummary())
-                .addValue("contentDate", Date.valueOf(contentDate));
-        namedJdbc.update("""
-                insert into data_operation_content
-                (package_id, platform_topic_id, platform_code, content_type, content_title, content_summary, content_date)
-                values (:packageId, :topicId, :platformCode, :contentType, :title, :summary, :contentDate)
-                """, params, keyHolder);
-        Long id = Objects.requireNonNull(keyHolder.getKey()).longValue();
+        Long existingId = queryLong("""
+                select id
+                from data_operation_content
+                where platform_topic_id = ? and content_type = ?
+                order by id desc
+                limit 1
+                """, topicId, contentType);
+        Long id;
+        if (existingId != null) {
+            jdbc.update("""
+                    update data_operation_content
+                    set platform_code = ?,
+                        content_title = ?,
+                        content_summary = ?,
+                        content_date = ?,
+                        updated_at = current_timestamp(6)
+                    where id = ?
+                    """, platformCode, title, request.contentSummary(), Date.valueOf(contentDate), existingId);
+            id = existingId;
+        } else {
+            KeyHolder keyHolder = new GeneratedKeyHolder();
+            MapSqlParameterSource params = new MapSqlParameterSource()
+                    .addValue("packageId", packageId)
+                    .addValue("topicId", topicId)
+                    .addValue("platformCode", platformCode)
+                    .addValue("contentType", contentType)
+                    .addValue("title", title)
+                    .addValue("summary", request.contentSummary())
+                    .addValue("contentDate", Date.valueOf(contentDate));
+            namedJdbc.update("""
+                    insert into data_operation_content
+                    (package_id, platform_topic_id, platform_code, content_type, content_title, content_summary, content_date)
+                    values (:packageId, :topicId, :platformCode, :contentType, :title, :summary, :contentDate)
+                    """, params, keyHolder);
+            id = Objects.requireNonNull(keyHolder.getKey()).longValue();
+        }
         jdbc.update("""
                 update data_operation_platform_topic
                 set content_type = ?,
@@ -93,6 +114,12 @@ public class DataOperationContentConfirmController {
     private Map<String, Object> queryOne(String sql, Object... args) {
         List<Map<String, Object>> rows = jdbc.queryForList(sql, args);
         return rows.isEmpty() ? Map.of() : new LinkedHashMap<>(rows.get(0));
+    }
+
+    private Long queryLong(String sql, Object... args) {
+        List<Map<String, Object>> rows = jdbc.queryForList(sql, args);
+        if (rows.isEmpty()) return null;
+        return numberToLong(rows.get(0).values().stream().findFirst().orElse(null));
     }
 
     private Long numberToLong(Object value) {
