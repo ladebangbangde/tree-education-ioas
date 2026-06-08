@@ -13,8 +13,8 @@ public class DataOperationExceptionAdvice {
     public ResponseEntity<ApiResponse<Void>> handleDuplicateKey(DuplicateKeyException ex) {
         String message = ex.getMessage() == null ? "数据已存在" : ex.getMessage();
         if (message.contains("uk_data_operation_package_display_name") || message.contains("display_name")) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error("主题包名字已存在，请换一个运营/媒体/日期组合"));
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error(409, "主题包名字已存在，请换一个运营/媒体/日期组合"));
         }
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error("数据已存在，请勿重复提交"));
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error(409, "数据已存在，请勿重复提交"));
     }
 }
