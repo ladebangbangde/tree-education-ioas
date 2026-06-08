@@ -1,7 +1,6 @@
 package com.treeeducation.ioas.dataops;
 
 import jakarta.annotation.PostConstruct;
-import org.springframework.context.annotation.DependsOn;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -12,7 +11,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Component
-@DependsOn("dataOperationMetricService")
 public class DataOperationFollowerGainBackfill {
     private static final Pattern GROWTH_AFTER_NEW_TOTAL = Pattern.compile("新增累计[\\s\\S]{0,80}?([+\\-]?[0-9][0-9,]*(?:\\.[0-9]+)?)");
     private static final Pattern GROWTH_AFTER_LABEL = Pattern.compile("(?:涨粉量|涨粉|新增粉丝|转粉|净增粉丝)[^0-9+\\-]{0,30}([+\\-]?[0-9][0-9,]*(?:\\.[0-9]+)?)");
