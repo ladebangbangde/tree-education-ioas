@@ -1,12 +1,10 @@
 package com.treeeducation.ioas.dataops;
 
 import jakarta.annotation.PostConstruct;
-import org.springframework.context.annotation.DependsOn;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 @Component
-@DependsOn("dataOperationMetricService")
 public class DataOperationMetricDefinitionCorrection {
     private final JdbcTemplate jdbc;
 
