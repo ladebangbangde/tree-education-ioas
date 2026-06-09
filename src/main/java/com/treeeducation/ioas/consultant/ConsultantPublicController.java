@@ -19,7 +19,7 @@ public class ConsultantPublicController {
         return ApiResponse.ok(service.publicList());
     }
 
-    @GetMapping({"/api/v1/public/consultant-regions", "/api/public/consultant-regions"})
+    @GetMapping("/api/public/consultant-regions")
     public ApiResponse<List<ConsultantAdminDtos.RegionView>> consultantRegions() {
         return ApiResponse.ok(service.publicRegionOptions());
     }
