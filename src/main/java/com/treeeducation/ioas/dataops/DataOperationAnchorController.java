@@ -28,8 +28,8 @@ public class DataOperationAnchorController {
         return ApiResponse.ok(jdbc.queryForList("""
                 select id, username, display_name, department, role_code
                 from sys_user
-                where status = 'ACTIVE' and role_code = 'ANCHOR'
-                order by id desc
+                where status = 'ACTIVE' and role_code in ('ANCHOR', 'SUPER_ADMIN')
+                order by field(role_code, 'ANCHOR', 'SUPER_ADMIN'), id desc
                 """));
     }
 
