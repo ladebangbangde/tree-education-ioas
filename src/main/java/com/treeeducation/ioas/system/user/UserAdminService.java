@@ -19,7 +19,9 @@ public class UserAdminService {
             new UserAdminDtos.OptionItem("MEDIA", "Media"),
             new UserAdminDtos.OptionItem("OPERATOR", "Operator"),
             new UserAdminDtos.OptionItem("DATA", "Data Operator"),
-            new UserAdminDtos.OptionItem("ADMINISTRATIVE", "Administrative")
+            new UserAdminDtos.OptionItem("ADMINISTRATIVE", "Administrative"),
+            new UserAdminDtos.OptionItem("ANCHOR", "主播")
+
     );
     private static final List<UserAdminDtos.OptionItem> DEPARTMENT_OPTIONS = List.of(
             new UserAdminDtos.OptionItem("SYSTEM", "System"),
