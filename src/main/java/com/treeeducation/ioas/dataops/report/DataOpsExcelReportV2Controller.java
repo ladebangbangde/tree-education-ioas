@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.sql.Date;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -60,6 +61,30 @@ public class DataOpsExcelReportV2Controller {
             return ok(jdbc.queryForList("SELECT id, report_date, platform, file_name, total_content_count, confirmed_count, unconfirmed_count, manual_corrected_count, exported_by_name, exported_at FROM data_operation_report_export_log ORDER BY exported_at DESC LIMIT 50"));
         } catch (Exception ex) {
             return ok(List.of());
+        }
+    }
+
+    @GetMapping("/export-logs/{id}/top5")
+    public Map<String, Object> top5(@PathVariable Long id) {
+        try {
+            List<Map<String, Object>> logs = jdbc.queryForList("SELECT id, report_date, platform, file_name FROM data_operation_report_export_log WHERE id = ? LIMIT 1", id);
+            if (logs.isEmpty()) return ok(Map.of("logId", id, "rows", List.of()));
+            Map<String, Object> log = logs.get(0);
+            LocalDate reportDate = toLocalDate(log.get("report_date"));
+            String platform = text(log.get("platform"));
+            DataOpsExcelReportQueryService.QueryResult result = queryService.load(reportDate, platform, null, true);
+            List<Map<String, Object>> topRows = result.rows().stream().limit(5).map(row -> queryService.toReportRow(row, reportDate)).toList();
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("logId", id);
+            data.put("reportDate", String.valueOf(reportDate));
+            data.put("platform", platform);
+            data.put("fileName", text(log.get("file_name")));
+            data.put("tableName", result.tableName());
+            data.put("sourceMode", result.sourceMode());
+            data.put("rows", topRows);
+            return ok(data);
+        } catch (Exception ex) {
+            return ok(Map.of("logId", id, "rows", List.of(), "error", ex.getMessage()));
         }
     }
 
@@ -179,6 +204,12 @@ public class DataOpsExcelReportV2Controller {
         return new ReportRow(value(row, "date"), value(row, "packageName"), safePlatform(value(row, "platform")), value(row, "account"), value(row, "title"), value(row, "subTopic"), value(row, "contentType"), value(row, "publishedAt"), value(row, "operatorName"), value(row, "mediaName"), toLong(row.get("page1Views")), toLong(row.get("page1Likes")), toLong(row.get("page1Comments")), toLong(row.get("page1Favorites")), toLong(row.get("page1Shares")), toLong(row.get("page2Exposure")), toLong(row.get("page2ProfileViews")), toLong(row.get("page2Followers")), toDouble(row.get("page3CompletionRate")), toDouble(row.get("page3EngagementRate")), toDouble(row.get("ocrConfidence")), truthy(row.get("corrected")), value(row, "reviewer"), value(row, "createdAt"), truthy(row.get("confirmed")));
     }
 
+    private LocalDate toLocalDate(Object value) {
+        if (value instanceof LocalDate localDate) return localDate;
+        if (value instanceof Date date) return date.toLocalDate();
+        return LocalDate.parse(String.valueOf(value));
+    }
+
     private Map<String, Object> ok(Object data) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("code", 0);
@@ -190,6 +221,7 @@ public class DataOpsExcelReportV2Controller {
 
     private String safePlatform(String platform) { return platform == null || platform.isBlank() ? "UNKNOWN" : platform; }
     private String value(Map<String, Object> row, String key) { Object value = row.get(key); return value == null ? "" : String.valueOf(value); }
+    private String text(Object value) { return value == null ? "" : String.valueOf(value); }
     private long toLong(Object value) { if (value == null) return 0L; if (value instanceof Number number) return Math.round(number.doubleValue()); try { return Math.round(Double.parseDouble(String.valueOf(value))); } catch (Exception ex) { return 0L; } }
     private double toDouble(Object value) { if (value == null) return 0D; if (value instanceof Number number) return number.doubleValue(); try { return Double.parseDouble(String.valueOf(value)); } catch (Exception ex) { return 0D; } }
     private boolean truthy(Object value) { if (value == null) return false; String text = String.valueOf(value).trim().toLowerCase(); return "1".equals(text) || "true".equals(text) || "y".equals(text) || "yes".equals(text); }
