@@ -2,8 +2,6 @@ package com.treeeducation.ioas.dataops;
 
 import com.treeeducation.ioas.common.ApiResponse;
 import com.treeeducation.ioas.common.BusinessException;
-import com.treeeducation.ioas.recognition.ImageRecognitionDtos;
-import com.treeeducation.ioas.recognition.ImageRecognitionService;
 import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -20,13 +18,11 @@ import java.util.Map;
 @RequestMapping("/api/v1/data-ops")
 public class DataOperationWorkflowController {
     private final JdbcTemplate jdbc;
-    private final ImageRecognitionService imageRecognitionService;
     private final DataOperationVideoHierarchyService hierarchyService;
     private final DataOperationAssetStorageService storageService;
 
-    public DataOperationWorkflowController(JdbcTemplate jdbc, ImageRecognitionService imageRecognitionService, DataOperationVideoHierarchyService hierarchyService, DataOperationAssetStorageService storageService) {
+    public DataOperationWorkflowController(JdbcTemplate jdbc, DataOperationVideoHierarchyService hierarchyService, DataOperationAssetStorageService storageService) {
         this.jdbc = jdbc;
-        this.imageRecognitionService = imageRecognitionService;
         this.hierarchyService = hierarchyService;
         this.storageService = storageService;
     }
@@ -47,12 +43,6 @@ public class DataOperationWorkflowController {
         Long accountId = hierarchyService.upsertAccountFromCover(topicId, str(topic.get("platform_code")), request.accountName().trim(), request.platformUserId().trim());
         jdbc.update("update data_operation_platform_topic set ocr_account_name = ?, ocr_platform_user_id = ?, account_confirmed_flag = 1, confirmed_account_id = ?, updated_at = current_timestamp(6) where id = ?", request.accountName().trim(), request.platformUserId().trim(), accountId, topicId);
         return ApiResponse.ok(Map.of("topicId", topicId, "accountId", accountId, "accountName", request.accountName().trim(), "platformUserId", request.platformUserId().trim(), "status", "CONFIRMED"));
-    }
-
-    @PostMapping("/assets/{assetId}/recognize-current")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA')")
-    public ApiResponse<ImageRecognitionDtos.Response> recognizeCurrent(@PathVariable Long assetId, @RequestParam(required = false) String platform, @RequestParam(required = false) String scene) {
-        return ApiResponse.ok(imageRecognitionService.recognizeDataAsset(assetId, platform, scene));
     }
 
     @GetMapping("/assets/{assetId}/file")
