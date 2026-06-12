@@ -3,14 +3,10 @@ package com.treeeducation.ioas.dataops;
 import com.treeeducation.ioas.common.ApiResponse;
 import com.treeeducation.ioas.common.BusinessException;
 import jakarta.annotation.PostConstruct;
-import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import java.io.IOException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -19,12 +15,10 @@ import java.util.Map;
 public class DataOperationWorkflowController {
     private final JdbcTemplate jdbc;
     private final DataOperationVideoHierarchyService hierarchyService;
-    private final DataOperationAssetStorageService storageService;
 
-    public DataOperationWorkflowController(JdbcTemplate jdbc, DataOperationVideoHierarchyService hierarchyService, DataOperationAssetStorageService storageService) {
+    public DataOperationWorkflowController(JdbcTemplate jdbc, DataOperationVideoHierarchyService hierarchyService) {
         this.jdbc = jdbc;
         this.hierarchyService = hierarchyService;
-        this.storageService = storageService;
     }
 
     @PostConstruct
@@ -45,16 +39,6 @@ public class DataOperationWorkflowController {
         return ApiResponse.ok(Map.of("topicId", topicId, "accountId", accountId, "accountName", request.accountName().trim(), "platformUserId", request.platformUserId().trim(), "status", "CONFIRMED"));
     }
 
-    @GetMapping("/assets/{assetId}/file")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA','MEDIA','OPERATOR')")
-    public void assetFile(@PathVariable Long assetId, HttpServletResponse response) throws IOException {
-        Map<String, Object> asset = one("select * from data_operation_asset where id = ?", assetId);
-        byte[] bytes = storageService.readBytes(str(asset.get("bucket_name")), str(asset.get("object_key")));
-        response.setContentType(first(str(asset.get("mime_type")), "application/octet-stream"));
-        response.setHeader("Content-Disposition", "inline; filename*=UTF-8''" + URLEncoder.encode(first(str(asset.get("original_filename")), "asset.bin"), StandardCharsets.UTF_8));
-        response.getOutputStream().write(bytes);
-    }
-
     private void ensureColumn(String table, String column, String ddl) {
         Integer count = jdbc.queryForObject("select count(*) from information_schema.columns where table_schema = database() and table_name = ? and column_name = ?", Integer.class, table, column);
         if (count != null && count == 0) jdbc.execute(ddl);
@@ -68,7 +52,6 @@ public class DataOperationWorkflowController {
 
     private String str(Object value) { return value == null ? null : String.valueOf(value); }
     private boolean blank(String value) { return value == null || value.isBlank(); }
-    private String first(String... values) { for (String value : values) if (value != null && !value.isBlank()) return value; return null; }
 
     public record ConfirmAccountRequest(String accountName, String platformUserId) {}
 }
