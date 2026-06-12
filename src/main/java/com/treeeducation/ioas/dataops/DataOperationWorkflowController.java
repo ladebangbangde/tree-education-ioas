@@ -67,9 +67,9 @@ public class DataOperationWorkflowController {
         return ApiResponse.ok(metricService.computeTopicStatus(topicId));
     }
 
-    @PostMapping("/platform-topics/{topicId}/account/confirm")
+    @PostMapping("/platform-topics/{topicId}/account/confirm-workflow")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA')")
-    public ApiResponse<Map<String, Object>> confirmAccount(@PathVariable Long topicId, @RequestBody ConfirmAccountRequest request) {
+    public ApiResponse<Map<String, Object>> confirmAccountWorkflow(@PathVariable Long topicId, @RequestBody ConfirmAccountRequest request) {
         if (request == null || blank(request.accountName()) || blank(request.platformUserId())) throw BusinessException.badRequest("请确认账号名称和平台账号ID");
         Map<String, Object> topic = one("select * from data_operation_platform_topic where id = ?", topicId);
         Long accountId = hierarchyService.upsertAccountFromCover(topicId, str(topic.get("platform_code")), request.accountName().trim(), request.platformUserId().trim());
