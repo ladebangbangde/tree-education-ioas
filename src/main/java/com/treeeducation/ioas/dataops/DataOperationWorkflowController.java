@@ -107,21 +107,6 @@ public class DataOperationWorkflowController {
         return ApiResponse.ok(imageRecognitionService.recognizeDataAsset(assetId, platform, scene));
     }
 
-    @DeleteMapping("/assets/{assetId}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA')")
-    public ApiResponse<Map<String, Object>> deleteAsset(@PathVariable Long assetId) {
-        Map<String, Object> asset = one("select * from data_operation_asset where id = ?", assetId);
-        Long contentId = num(asset.get("content_id"));
-        storageService.delete(str(asset.get("bucket_name")), str(asset.get("object_key")));
-        jdbc.update("delete from data_operation_metric_value where asset_id = ?", assetId);
-        jdbc.update("delete from data_operation_asset where id = ?", assetId);
-        if (contentId != null) {
-            Integer count = jdbc.queryForObject("select count(*) from data_operation_asset where content_id = ? and asset_type = 'DATA_SCREENSHOT'", Integer.class, contentId);
-            jdbc.update("update data_operation_content set screenshot_count = ?, updated_at = current_timestamp(6) where id = ?", count == null ? 0 : count, contentId);
-        }
-        return ApiResponse.ok(Map.of("deleted", true, "assetId", assetId));
-    }
-
     @GetMapping("/assets/{assetId}/file")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA','MEDIA','OPERATOR')")
     public void assetFile(@PathVariable Long assetId, HttpServletResponse response) throws IOException {
