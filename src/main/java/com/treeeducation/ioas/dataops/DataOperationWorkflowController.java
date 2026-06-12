@@ -21,14 +21,12 @@ import java.util.Map;
 public class DataOperationWorkflowController {
     private final JdbcTemplate jdbc;
     private final ImageRecognitionService imageRecognitionService;
-    private final DataOperationMetricService metricService;
     private final DataOperationVideoHierarchyService hierarchyService;
     private final DataOperationAssetStorageService storageService;
 
-    public DataOperationWorkflowController(JdbcTemplate jdbc, ImageRecognitionService imageRecognitionService, DataOperationMetricService metricService, DataOperationVideoHierarchyService hierarchyService, DataOperationAssetStorageService storageService) {
+    public DataOperationWorkflowController(JdbcTemplate jdbc, ImageRecognitionService imageRecognitionService, DataOperationVideoHierarchyService hierarchyService, DataOperationAssetStorageService storageService) {
         this.jdbc = jdbc;
         this.imageRecognitionService = imageRecognitionService;
-        this.metricService = metricService;
         this.hierarchyService = hierarchyService;
         this.storageService = storageService;
     }
@@ -39,22 +37,6 @@ public class DataOperationWorkflowController {
         ensureColumn("data_operation_platform_topic", "account_confirmed_flag", "alter table data_operation_platform_topic add column account_confirmed_flag tinyint(1) not null default 0");
         ensureColumn("data_operation_platform_topic", "confirmed_account_id", "alter table data_operation_platform_topic add column confirmed_account_id bigint null");
         ensureColumn("data_operation_content", "content_type", "alter table data_operation_content add column content_type varchar(32) null");
-    }
-
-    @GetMapping("/platform-topics/{topicId}/metrics")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA','MEDIA','OPERATOR')")
-    public ApiResponse<Map<String, Object>> topicMetrics(@PathVariable Long topicId) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("topicId", topicId);
-        result.put("status", metricService.computeTopicStatus(topicId));
-        result.put("rows", metricService.listTopicMetrics(topicId));
-        return ApiResponse.ok(result);
-    }
-
-    @GetMapping("/platform-topics/{topicId}/recognition-status")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA','MEDIA','OPERATOR')")
-    public ApiResponse<Map<String, Object>> topicRecognitionStatus(@PathVariable Long topicId) {
-        return ApiResponse.ok(metricService.computeTopicStatus(topicId));
     }
 
     @PostMapping("/platform-topics/{topicId}/account/confirm-workflow")
