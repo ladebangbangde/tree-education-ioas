@@ -99,7 +99,7 @@ public class DataOperationMetricService {
         String effectivePlatform = nonBlank(platformCode, queryString("select platform_code from data_operation_platform_topic where id = ?", topicId), "DOUYIN");
         String effectiveContentType = nonBlank(contentType, queryString("select content_type from data_operation_content where id = ?", contentId), queryString("select content_type from data_operation_platform_topic where id = ?", topicId), "IMAGE_TEXT");
 
-        replaceSameDataPageMetrics(topicId, assetId, group);
+        replaceSameDataPageMetrics(topicId, contentId, assetId, group);
         ensureMetricRows(packageId, topicId, contentId, assetId, effectivePlatform, effectiveContentType, group);
 
         Map<String, Object> metrics = normalizedMetricValues(extractedPayload.get("metrics"));
@@ -134,6 +134,7 @@ public class DataOperationMetricService {
                        v.video_id as videoId,
                        vid.video_title as videoTitle,
                        v.content_id as contentId,
+                       c.content_title as contentTitle,
                        v.asset_id as assetId,
                        v.platform_code as platformCode,
                        v.content_type as contentType,
@@ -156,20 +157,20 @@ public class DataOperationMetricService {
                  and d.metric_group = v.metric_group
                  and d.metric_key = v.metric_key
                  and d.enabled = 1
-                left join data_operation_platform_topic t on t.id = v.platform_topic_id
                 left join data_operation_account a on a.id = v.account_id
                 left join data_operation_video vid on vid.id = v.video_id
+                left join data_operation_content c on c.id = v.content_id
                 where v.platform_topic_id = ?
-                  and (t.content_type is null or t.content_type = '' or v.content_type = t.content_type)
                   and not exists (
                       select 1
                       from data_operation_metric_value newer
                       where newer.platform_topic_id = v.platform_topic_id
+                        and coalesce(newer.content_id, 0) = coalesce(v.content_id, 0)
                         and newer.metric_group = v.metric_group
                         and newer.metric_key = v.metric_key
                         and coalesce(newer.asset_id, 0) > coalesce(v.asset_id, 0)
                   )
-                order by coalesce(a.id, 0), field(v.content_type, 'IMAGE_TEXT', 'VIDEO'), coalesce(vid.id, 0), field(v.metric_group, 'OVERVIEW', 'OVERVIEW_CHART', 'FLOW_ANALYSIS'), d.display_order, v.id
+                order by coalesce(a.id, 0), coalesce(c.id, 0), field(v.content_type, 'IMAGE_TEXT', 'VIDEO'), field(v.metric_group, 'OVERVIEW', 'OVERVIEW_CHART', 'FLOW_ANALYSIS'), d.display_order, v.id
                 """, topicId);
     }
 
@@ -220,11 +221,23 @@ public class DataOperationMetricService {
         return result;
     }
 
-    private void replaceSameDataPageMetrics(Long topicId, Long assetId, String group) {
+    private void replaceSameDataPageMetrics(Long topicId, Long contentId, Long assetId, String group) {
         if (topicId == null || assetId == null || group == null) return;
+        if (contentId != null) {
+            jdbc.update("""
+                    delete from data_operation_metric_value
+                    where platform_topic_id = ?
+                      and content_id = ?
+                      and metric_group = ?
+                      and asset_id is not null
+                      and asset_id <> ?
+                    """, topicId, contentId, group, assetId);
+            return;
+        }
         jdbc.update("""
                 delete from data_operation_metric_value
                 where platform_topic_id = ?
+                  and content_id is null
                   and metric_group = ?
                   and asset_id is not null
                   and asset_id <> ?
@@ -232,6 +245,8 @@ public class DataOperationMetricService {
     }
 
     private void ensureMetricRows(Long packageId, Long topicId, Long contentId, Long assetId, String platformCode, String contentType, String group) {
+        Long accountId = contentId == null ? null : queryLong("select account_id from data_operation_content where id = ?", contentId);
+        Long videoId = contentId == null ? null : queryLong("select video_id from data_operation_content where id = ?", contentId);
         List<Map<String, Object>> defs = jdbc.queryForList("""
                 select metric_key, metric_label, metric_unit
                 from data_operation_metric_definition
@@ -241,12 +256,14 @@ public class DataOperationMetricService {
         for (Map<String, Object> def : defs) {
             jdbc.update("""
                     insert into data_operation_metric_value
-                        (topic_package_id, platform_topic_id, content_id, asset_id, platform_code, content_type,
+                        (topic_package_id, platform_topic_id, account_id, video_id, content_id, asset_id, platform_code, content_type,
                          metric_group, metric_key, metric_label, metric_unit, recognition_status, source)
-                    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'OCR')
+                    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'OCR')
                     on duplicate key update
                         topic_package_id = values(topic_package_id),
                         platform_topic_id = values(platform_topic_id),
+                        account_id = values(account_id),
+                        video_id = values(video_id),
                         content_id = values(content_id),
                         platform_code = values(platform_code),
                         content_type = values(content_type),
@@ -258,7 +275,7 @@ public class DataOperationMetricService {
                         fail_reason = null,
                         recognized_at = null,
                         updated_at = current_timestamp(6)
-                    """, packageId, topicId, contentId, assetId, platformCode, contentType, group,
+                    """, packageId, topicId, accountId, videoId, contentId, assetId, platformCode, contentType, group,
                     def.get("metric_key"), def.get("metric_label"), def.get("metric_unit"));
         }
     }
@@ -313,11 +330,7 @@ public class DataOperationMetricService {
     private BigDecimal metricNumeric(String value) {
         if (value == null || value.isBlank()) return null;
         String cleaned = value.replace("%", "").replace(",", "").replace("万", "").replace("w", "").replace("W", "").trim();
-        try {
-            return new BigDecimal(cleaned);
-        } catch (NumberFormatException ex) {
-            return null;
-        }
+        try { return new BigDecimal(cleaned); } catch (NumberFormatException ex) { return null; }
     }
 
     private void seedDefinitions(String platform, String contentType) {
@@ -407,11 +420,7 @@ public class DataOperationMetricService {
     }
 
     private String toJson(Object value) {
-        try {
-            return objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException ex) {
-            return "[]";
-        }
+        try { return objectMapper.writeValueAsString(value); } catch (JsonProcessingException ex) { return "[]"; }
     }
 
     private String stringValue(Object value) { return value == null ? null : String.valueOf(value); }
