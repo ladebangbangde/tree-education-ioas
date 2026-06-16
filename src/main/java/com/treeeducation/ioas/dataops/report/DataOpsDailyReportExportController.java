@@ -60,7 +60,7 @@ public class DataOpsDailyReportExportController {
                 join data_operation_platform_topic t on t.id = c.platform_topic_id
                 join data_operation_topic_package p on p.id = c.package_id
                 where p.topic_date = ?
-                order by t.id desc, c.id desc
+                order by p.id desc, t.id desc, c.id desc
                 """, Date.valueOf(reportDate));
 
         List<ReportRow> reportRows = contents.stream().map(this::buildReportRow).toList();
@@ -135,38 +135,77 @@ public class DataOpsDailyReportExportController {
         return row;
     }
 
+    /**
+     * 汇总看板现在按“主题/账号”聚合，而不是统计作品数量和平台数量。
+     * 一行代表：某一天、某个主题包下、某个平台子主题/账号的总数据。
+     */
     private void writeSummarySheet(XSSFWorkbook workbook, LocalDate reportDate, List<ReportRow> rows) {
-        XSSFSheet sheet = workbook.createSheet("汇总看板");
+        XSSFSheet sheet = workbook.createSheet("主题账号汇总");
         Row header = sheet.createRow(0);
-        String[] titles = {"日期", "作品数", "图文数", "视频数", "抖音数", "小红书数", "视频号数", "总播放量", "总点赞量", "总评论量", "总收藏量", "总分享量", "总涨粉量", "平均封面点击率", "平均文案展开率", "平均文案完读率", "平均评论进入率", "平均完播率", "平均5s完播率"};
+        String[] titles = {
+                "日期", "主题包", "平台子主题", "平台", "账号名称", "平台账号ID", "运营人员", "媒体人员",
+                "总播放量", "总点赞量", "总评论量", "总收藏量", "总分享量", "总涨粉量",
+                "平均封面点击率", "平均文案展开率", "平均文案完读率", "平均评论进入率", "平均完播率", "平均5s完播率"
+        };
         for (int i = 0; i < titles.length; i++) header.createCell(i).setCellValue(titles[i]);
 
-        Row row = sheet.createRow(1);
-        row.createCell(0).setCellValue(String.valueOf(reportDate));
-        row.createCell(1).setCellValue(rows.size());
-        row.createCell(2).setCellValue(rows.stream().filter(item -> "IMAGE_TEXT".equalsIgnoreCase(item.contentType)).count());
-        row.createCell(3).setCellValue(rows.stream().filter(item -> "VIDEO".equalsIgnoreCase(item.contentType)).count());
-        row.createCell(4).setCellValue(rows.stream().filter(item -> "DOUYIN".equalsIgnoreCase(item.platformCode)).count());
-        row.createCell(5).setCellValue(rows.stream().filter(item -> "XIAOHONGSHU".equalsIgnoreCase(item.platformCode)).count());
-        row.createCell(6).setCellValue(rows.stream().filter(item -> "WECHAT_CHANNEL".equalsIgnoreCase(item.platformCode)).count());
-        row.createCell(7).setCellValue(rows.stream().mapToLong(item -> item.viewsLong).sum());
-        row.createCell(8).setCellValue(rows.stream().mapToLong(item -> item.likesLong).sum());
-        row.createCell(9).setCellValue(rows.stream().mapToLong(item -> item.commentsLong).sum());
-        row.createCell(10).setCellValue(rows.stream().mapToLong(item -> item.favoritesLong).sum());
-        row.createCell(11).setCellValue(rows.stream().mapToLong(item -> item.sharesLong).sum());
-        row.createCell(12).setCellValue(rows.stream().mapToLong(item -> item.newFollowersLong).sum());
-        row.createCell(13).setCellValue(averagePercent(rows, item -> item.coverClickRateDouble));
-        row.createCell(14).setCellValue(averagePercent(rows, item -> item.copyExpandRateDouble));
-        row.createCell(15).setCellValue(averagePercent(rows, item -> item.copyReadRateDouble));
-        row.createCell(16).setCellValue(averagePercent(rows, item -> item.commentEnterRateDouble));
-        row.createCell(17).setCellValue(averagePercent(rows, item -> item.completionRateDouble));
-        row.createCell(18).setCellValue(averagePercent(rows, item -> item.fiveSecondCompletionRateDouble));
+        Map<String, List<ReportRow>> groups = new LinkedHashMap<>();
+        for (ReportRow item : rows) {
+            String key = String.join("|",
+                    item.date,
+                    item.packageName,
+                    item.subTopicName,
+                    item.platformCode,
+                    item.accountName,
+                    item.platformUserId,
+                    item.operatorNames,
+                    item.mediaNames
+            );
+            groups.computeIfAbsent(key, ignored -> new ArrayList<>()).add(item);
+        }
+
+        if (groups.isEmpty()) {
+            Row row = sheet.createRow(1);
+            row.createCell(0).setCellValue(String.valueOf(reportDate));
+            row.createCell(1).setCellValue("当日无已确认作品数据");
+            return;
+        }
+
+        int rowIndex = 1;
+        for (List<ReportRow> groupRows : groups.values()) {
+            ReportRow first = groupRows.get(0);
+            Row row = sheet.createRow(rowIndex++);
+            int c = 0;
+            row.createCell(c++).setCellValue(first.date);
+            row.createCell(c++).setCellValue(first.packageName);
+            row.createCell(c++).setCellValue(first.subTopicName);
+            row.createCell(c++).setCellValue(first.platformName);
+            row.createCell(c++).setCellValue(first.accountName);
+            row.createCell(c++).setCellValue(first.platformUserId);
+            row.createCell(c++).setCellValue(first.operatorNames);
+            row.createCell(c++).setCellValue(first.mediaNames);
+            row.createCell(c++).setCellValue(groupRows.stream().mapToLong(item -> item.viewsLong).sum());
+            row.createCell(c++).setCellValue(groupRows.stream().mapToLong(item -> item.likesLong).sum());
+            row.createCell(c++).setCellValue(groupRows.stream().mapToLong(item -> item.commentsLong).sum());
+            row.createCell(c++).setCellValue(groupRows.stream().mapToLong(item -> item.favoritesLong).sum());
+            row.createCell(c++).setCellValue(groupRows.stream().mapToLong(item -> item.sharesLong).sum());
+            row.createCell(c++).setCellValue(groupRows.stream().mapToLong(item -> item.newFollowersLong).sum());
+            row.createCell(c++).setCellValue(averagePercent(groupRows, item -> item.coverClickRateDouble));
+            row.createCell(c++).setCellValue(averagePercent(groupRows, item -> item.copyExpandRateDouble));
+            row.createCell(c++).setCellValue(averagePercent(groupRows, item -> item.copyReadRateDouble));
+            row.createCell(c++).setCellValue(averagePercent(groupRows, item -> item.commentEnterRateDouble));
+            row.createCell(c++).setCellValue(averagePercent(groupRows, item -> item.completionRateDouble));
+            row.createCell(c).setCellValue(averagePercent(groupRows, item -> item.fiveSecondCompletionRateDouble));
+        }
     }
 
+    /**
+     * 平台内容明细一行代表一个作品。
+     */
     private void writeDetailSheet(XSSFWorkbook workbook, List<ReportRow> rows) {
-        XSSFSheet sheet = workbook.createSheet("平台内容明细");
+        XSSFSheet sheet = workbook.createSheet("作品数据明细");
         Row header = sheet.createRow(0);
-        String[] titles = {"日期", "主题包", "平台", "账号名称", "平台账号ID", "子主题", "作品ID", "作品类型", "作品标题", "内容说明", "运营人员", "媒体人员", "播放量", "点赞量", "评论量", "收藏量", "分享量", "涨粉量", "封面点击率", "文案展开率", "文案完读率", "评论进入率", "完播率", "5s完播率", "状态", "创建时间"};
+        String[] titles = {"日期", "主题包", "平台子主题", "平台", "账号名称", "平台账号ID", "运营人员", "媒体人员", "作品ID", "作品类型", "作品标题", "内容说明", "播放量", "点赞量", "评论量", "收藏量", "分享量", "涨粉量", "封面点击率", "文案展开率", "文案完读率", "评论进入率", "完播率", "5s完播率", "状态", "创建时间"};
         for (int i = 0; i < titles.length; i++) header.createCell(i).setCellValue(titles[i]);
         int rowIndex = 1;
         for (ReportRow item : rows) {
@@ -174,16 +213,16 @@ public class DataOpsDailyReportExportController {
             int c = 0;
             row.createCell(c++).setCellValue(item.date);
             row.createCell(c++).setCellValue(item.packageName);
+            row.createCell(c++).setCellValue(item.subTopicName);
             row.createCell(c++).setCellValue(item.platformName);
             row.createCell(c++).setCellValue(item.accountName);
             row.createCell(c++).setCellValue(item.platformUserId);
-            row.createCell(c++).setCellValue(item.subTopicName);
+            row.createCell(c++).setCellValue(item.operatorNames);
+            row.createCell(c++).setCellValue(item.mediaNames);
             row.createCell(c++).setCellValue(item.contentId == null ? "" : String.valueOf(item.contentId));
             row.createCell(c++).setCellValue(item.contentTypeLabel);
             row.createCell(c++).setCellValue(item.contentTitle);
             row.createCell(c++).setCellValue(item.contentSummary);
-            row.createCell(c++).setCellValue(item.operatorNames);
-            row.createCell(c++).setCellValue(item.mediaNames);
             row.createCell(c++).setCellValue(item.views);
             row.createCell(c++).setCellValue(item.likes);
             row.createCell(c++).setCellValue(item.comments);
@@ -201,10 +240,13 @@ public class DataOpsDailyReportExportController {
         }
     }
 
+    /**
+     * 每条数据明细一行代表一个 OCR 指标。
+     */
     private void writeMetricSheet(XSSFWorkbook workbook, List<ReportRow> rows) {
-        XSSFSheet sheet = workbook.createSheet("每条数据明细");
+        XSSFSheet sheet = workbook.createSheet("OCR指标明细");
         Row header = sheet.createRow(0);
-        String[] titles = {"日期", "主题包", "平台", "账号名称", "平台账号ID", "子主题", "作品ID", "作品类型", "作品标题", "数据页", "来源图片", "数据标签", "识别值", "单位", "状态", "识别时间", "来源"};
+        String[] titles = {"日期", "主题包", "平台子主题", "平台", "账号名称", "平台账号ID", "运营人员", "媒体人员", "作品ID", "作品类型", "作品标题", "数据页", "来源图片", "数据标签", "识别值", "单位", "状态", "识别时间", "来源"};
         for (int i = 0; i < titles.length; i++) header.createCell(i).setCellValue(titles[i]);
         int rowIndex = 1;
         for (ReportRow item : rows) {
@@ -213,10 +255,12 @@ public class DataOpsDailyReportExportController {
                 int c = 0;
                 row.createCell(c++).setCellValue(item.date);
                 row.createCell(c++).setCellValue(item.packageName);
+                row.createCell(c++).setCellValue(item.subTopicName);
                 row.createCell(c++).setCellValue(item.platformName);
                 row.createCell(c++).setCellValue(firstNonBlank(text(metric.get("accountName")), item.accountName));
                 row.createCell(c++).setCellValue(firstNonBlank(text(metric.get("platformUserId")), item.platformUserId));
-                row.createCell(c++).setCellValue(item.subTopicName);
+                row.createCell(c++).setCellValue(item.operatorNames);
+                row.createCell(c++).setCellValue(item.mediaNames);
                 row.createCell(c++).setCellValue(item.contentId == null ? "" : String.valueOf(item.contentId));
                 row.createCell(c++).setCellValue(item.contentTypeLabel);
                 row.createCell(c++).setCellValue(firstNonBlank(text(metric.get("videoTitle")), text(metric.get("contentTitle")), item.contentTitle));
