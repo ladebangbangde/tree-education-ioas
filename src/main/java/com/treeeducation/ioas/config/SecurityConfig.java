@@ -53,6 +53,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/data-ops/assets/*/file").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/data-ops/assets/*/recognize-current").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/official/leads").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/official/leads/").permitAll()
                         .requestMatchers(
