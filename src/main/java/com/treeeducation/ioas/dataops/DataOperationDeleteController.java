@@ -18,12 +18,6 @@ public class DataOperationDeleteController {
         this.deleteService = deleteService;
     }
 
-    @DeleteMapping("/assets/{assetId}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA')")
-    public ApiResponse<Map<String, Object>> deleteAsset(@PathVariable Long assetId) {
-        return ApiResponse.ok(deleteService.deleteAsset(assetId));
-    }
-
     @DeleteMapping("/contents/{contentId}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA')")
     public ApiResponse<Map<String, Object>> deleteContent(@PathVariable Long contentId) {
