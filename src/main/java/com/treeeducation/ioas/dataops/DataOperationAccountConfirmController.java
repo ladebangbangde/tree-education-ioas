@@ -1,6 +1,7 @@
 package com.treeeducation.ioas.dataops;
 
 import com.treeeducation.ioas.common.ApiResponse;
+import com.treeeducation.ioas.common.BusinessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @RestController
@@ -26,13 +28,14 @@ public class DataOperationAccountConfirmController {
     }
 
     @PostMapping("/{topicId}/account/confirm")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA','CONSULTANT')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA','MEDIA','OPERATOR','CONSULTANT')")
     public ApiResponse<Map<String, Object>> confirmAccount(@PathVariable Long topicId, @RequestBody AccountConfirmRequest request) {
         ensureColumns();
         String accountName = trimToNull(request.accountName());
         String platformUserId = trimToNull(request.platformUserId());
+        String contentType = normalizeContentType(request.contentType());
         if (accountName == null || platformUserId == null) {
-            throw new IllegalArgumentException("账号名称和平台账号ID不能为空");
+            throw BusinessException.badRequest("账号名称和平台账号ID不能为空");
         }
         Map<String, Object> topic = queryOne("select * from data_operation_platform_topic where id = ?", topicId);
         String platformCode = stringValue(topic.get("platform_code"));
@@ -54,6 +57,7 @@ public class DataOperationAccountConfirmController {
                 set ocr_status = 'success',
                     ocr_account_name = ?,
                     ocr_platform_user_id = ?,
+                    content_type = ?,
                     account_confirmed_flag = 1,
                     account_confirmed_at = current_timestamp(6),
                     confirmed_account_id = ?,
@@ -61,14 +65,34 @@ public class DataOperationAccountConfirmController {
                     recognized_at = ?,
                     updated_at = current_timestamp(6)
                 where id = ?
-                """, accountName, platformUserId, accountId, LocalDateTime.now(), topicId);
+                """, accountName, platformUserId, contentType, accountId, LocalDateTime.now(), topicId);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("topicId", topicId);
         result.put("accountId", accountId);
         result.put("accountName", accountName);
         result.put("platformUserId", platformUserId);
+        result.put("contentType", contentType);
         result.put("confirmed", true);
-        result.put("nextStep", "CHOOSE_CONTENT_TYPE");
+        result.put("nextStep", "UPLOAD_" + contentType + "_CONTENT");
+        result.put("status", "SUCCESS");
+        return ApiResponse.ok(result);
+    }
+
+    @PostMapping("/{topicId}/content-type")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA','MEDIA','OPERATOR','CONSULTANT')")
+    public ApiResponse<Map<String, Object>> changeContentType(@PathVariable Long topicId, @RequestBody ContentTypeChangeRequest request) {
+        ensureColumns();
+        String contentType = normalizeContentType(request.contentType());
+        Map<String, Object> topic = queryOne("select * from data_operation_platform_topic where id = ?", topicId);
+        jdbc.update("""
+                update data_operation_platform_topic
+                set content_type = ?, updated_at = current_timestamp(6)
+                where id = ?
+                """, contentType, topicId);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("topicId", topicId);
+        result.put("contentType", contentType);
+        result.put("platformCode", topic.get("platform_code"));
         result.put("status", "SUCCESS");
         return ApiResponse.ok(result);
     }
@@ -115,6 +139,7 @@ public class DataOperationAccountConfirmController {
     }
 
     private void ensureColumns() {
+        ensureColumn("data_operation_platform_topic", "content_type", "alter table data_operation_platform_topic add column content_type varchar(32) null after platform_name");
         ensureColumn("data_operation_platform_topic", "account_confirmed_flag", "alter table data_operation_platform_topic add column account_confirmed_flag tinyint(1) not null default 0 after ocr_platform_user_id");
         ensureColumn("data_operation_platform_topic", "account_confirmed_at", "alter table data_operation_platform_topic add column account_confirmed_at datetime(6) null after account_confirmed_flag");
         ensureColumn("data_operation_platform_topic", "confirmed_account_id", "alter table data_operation_platform_topic add column confirmed_account_id bigint null after account_confirmed_at");
@@ -129,9 +154,17 @@ public class DataOperationAccountConfirmController {
         } catch (RuntimeException ignored) {}
     }
 
+    private String normalizeContentType(String value) {
+        if (value == null || value.isBlank()) return "IMAGE_TEXT";
+        String type = value.trim().toUpperCase(Locale.ROOT);
+        if ("VIDEO".equals(type)) return "VIDEO";
+        if ("IMAGE_TEXT".equals(type) || "IMAGE".equals(type) || "TEXT".equals(type)) return "IMAGE_TEXT";
+        throw BusinessException.badRequest("不支持的账号内容类型：" + value);
+    }
+
     private Map<String, Object> queryOne(String sql, Object... args) {
         var rows = jdbc.queryForList(sql, args);
-        if (rows.isEmpty()) throw new IllegalArgumentException("平台子主题不存在");
+        if (rows.isEmpty()) throw BusinessException.notFound("平台子主题不存在");
         return rows.get(0);
     }
 
@@ -151,5 +184,7 @@ public class DataOperationAccountConfirmController {
         return value == null ? null : String.valueOf(value);
     }
 
-    public record AccountConfirmRequest(String accountName, String platformUserId) {}
+    public record AccountConfirmRequest(String accountName, String platformUserId, String contentType) {}
+
+    public record ContentTypeChangeRequest(String contentType) {}
 }
