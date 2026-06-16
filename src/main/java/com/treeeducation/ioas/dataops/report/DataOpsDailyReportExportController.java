@@ -36,7 +36,7 @@ public class DataOpsDailyReportExportController {
     @PostMapping("/daily")
     public void exportDailyReport(@RequestBody DailyReportRequest request, HttpServletResponse response) throws IOException {
         LocalDate reportDate = request == null || request.date() == null ? LocalDate.now() : request.date();
-        List<Map<String, Object>> topics = jdbcTemplate.queryForList("""
+        List<Map<String, Object>> contents = jdbcTemplate.queryForList("""
                 select
                   p.id as package_id,
                   p.topic_date as report_date,
@@ -46,21 +46,24 @@ public class DataOpsDailyReportExportController {
                   t.id as topic_id,
                   t.platform_code,
                   t.platform_name,
-                  t.content_type as topic_content_type,
                   t.ocr_account_name as account_name,
                   t.ocr_platform_user_id as platform_user_id,
                   t.sub_topic_name,
-                  t.ocr_content_title,
-                  t.account_confirmed_flag
-                from data_operation_platform_topic t
-                left join data_operation_topic_package p on t.package_id = p.id
+                  c.id as content_id,
+                  c.content_type,
+                  c.content_title,
+                  c.content_summary,
+                  c.content_date,
+                  c.recognition_status,
+                  c.created_at
+                from data_operation_content c
+                join data_operation_platform_topic t on t.id = c.platform_topic_id
+                join data_operation_topic_package p on p.id = c.package_id
                 where p.topic_date = ?
-                order by t.id desc
+                order by t.id desc, c.id desc
                 """, Date.valueOf(reportDate));
 
-        List<ReportRow> reportRows = topics.stream()
-                .map(this::buildReportRow)
-                .toList();
+        List<ReportRow> reportRows = contents.stream().map(this::buildReportRow).toList();
 
         String fileName = "数据操作日报_" + reportDate + ".xlsx";
         try (XSSFWorkbook workbook = new XSSFWorkbook()) {
@@ -73,49 +76,35 @@ public class DataOpsDailyReportExportController {
         }
     }
 
-    private ReportRow buildReportRow(Map<String, Object> topic) {
-        Long topicId = numberToLong(topic.get("topic_id"));
-        String topicContentType = firstNonBlank(text(topic.get("topic_content_type")), "IMAGE_TEXT");
-        Map<String, Object> content = queryOptional("""
-                select id, content_type, content_title, content_summary, content_date, recognition_status, created_at
-                from data_operation_content
-                where platform_topic_id = ?
-                  and (content_type = ? or ? is null or ? = '')
-                order by id desc
-                limit 1
-                """, topicId, topicContentType, topicContentType, topicContentType);
-        if (content == null) {
-            content = queryOptional("""
-                    select id, content_type, content_title, content_summary, content_date, recognition_status, created_at
-                    from data_operation_content
-                    where platform_topic_id = ?
-                    order by id desc
-                    limit 1
-                    """, topicId);
-        }
-
-        List<Map<String, Object>> metricRows = topicId == null ? List.of() : metricService.listTopicMetrics(topicId);
+    private ReportRow buildReportRow(Map<String, Object> content) {
+        Long topicId = numberToLong(content.get("topic_id"));
+        Long contentId = numberToLong(content.get("content_id"));
+        List<Map<String, Object>> topicMetrics = topicId == null ? List.of() : metricService.listTopicMetrics(topicId);
+        List<Map<String, Object>> metricRows = topicMetrics.stream()
+                .filter(metric -> contentId != null && contentId.equals(numberToLong(metric.get("contentId"))))
+                .toList();
         Map<String, Map<String, Object>> metricsByLabel = new LinkedHashMap<>();
         for (Map<String, Object> metricRow : metricRows) {
-            metricsByLabel.put(normalizeLabel(text(metricRow.get("metricLabel"))), metricRow);
+            metricsByLabel.putIfAbsent(normalizeLabel(text(metricRow.get("metricLabel"))), metricRow);
         }
 
         ReportRow row = new ReportRow();
-        row.date = firstNonBlank(text(topic.get("report_date")), text(content == null ? null : content.get("content_date")));
-        row.packageName = text(topic.get("package_name"));
-        row.platformCode = firstNonBlank(text(topic.get("platform_code")), "DOUYIN");
-        row.platformName = firstNonBlank(text(topic.get("platform_name")), platformLabel(row.platformCode));
-        row.accountName = text(topic.get("account_name"));
-        row.platformUserId = text(topic.get("platform_user_id"));
-        row.subTopicName = text(topic.get("sub_topic_name"));
-        row.contentType = firstNonBlank(text(content == null ? null : content.get("content_type")), topicContentType);
+        row.date = firstNonBlank(text(content.get("report_date")), text(content.get("content_date")));
+        row.packageName = text(content.get("package_name"));
+        row.platformCode = firstNonBlank(text(content.get("platform_code")), "DOUYIN");
+        row.platformName = firstNonBlank(text(content.get("platform_name")), platformLabel(row.platformCode));
+        row.accountName = firstNonBlank(findFirstMetricText(metricRows, "accountName"), text(content.get("account_name")));
+        row.platformUserId = firstNonBlank(findFirstMetricText(metricRows, "platformUserId"), text(content.get("platform_user_id")));
+        row.subTopicName = text(content.get("sub_topic_name"));
+        row.contentId = contentId;
+        row.contentType = firstNonBlank(text(content.get("content_type")), "IMAGE_TEXT");
         row.contentTypeLabel = contentTypeLabel(row.contentType);
-        row.contentTitle = firstNonBlank(text(content == null ? null : content.get("content_title")), text(topic.get("ocr_content_title")));
-        row.contentSummary = text(content == null ? null : content.get("content_summary"));
-        row.operatorNames = text(topic.get("operator_names"));
-        row.mediaNames = text(topic.get("media_names"));
-        row.recognitionStatus = text(content == null ? null : content.get("recognition_status"));
-        row.createdAt = text(content == null ? null : content.get("created_at"));
+        row.contentTitle = firstNonBlank(findFirstMetricText(metricRows, "videoTitle"), text(content.get("content_title")));
+        row.contentSummary = text(content.get("content_summary"));
+        row.operatorNames = text(content.get("operator_names"));
+        row.mediaNames = text(content.get("media_names"));
+        row.recognitionStatus = text(content.get("recognition_status"));
+        row.createdAt = text(content.get("created_at"));
         row.metricRows = metricRows;
 
         row.views = metricText(metricsByLabel, "播放量", "浏览量");
@@ -128,53 +117,57 @@ public class DataOpsDailyReportExportController {
         row.copyExpandRate = metricText(metricsByLabel, "文案展开率");
         row.copyReadRate = metricText(metricsByLabel, "文案完读率");
         row.commentEnterRate = metricText(metricsByLabel, "评论进入率");
+        row.completionRate = metricText(metricsByLabel, "完播率");
+        row.fiveSecondCompletionRate = metricText(metricsByLabel, "5s完播率");
 
-        row.viewsLong = metricLong(metricsByLabel, "播放量", "浏览量");
-        row.likesLong = metricLong(metricsByLabel, "点赞量", "点赞");
-        row.commentsLong = metricLong(metricsByLabel, "评论量", "评论");
-        row.favoritesLong = metricLong(metricsByLabel, "收藏量", "收藏");
-        row.sharesLong = metricLong(metricsByLabel, "分享量", "转发量", "转发", "分享");
-        row.newFollowersLong = metricLong(metricsByLabel, "涨粉量", "新增粉丝数", "新增粉丝");
-        row.coverClickRateDouble = metricDouble(metricsByLabel, "封面点击率");
-        row.copyExpandRateDouble = metricDouble(metricsByLabel, "文案展开率");
-        row.copyReadRateDouble = metricDouble(metricsByLabel, "文案完读率");
-        row.commentEnterRateDouble = metricDouble(metricsByLabel, "评论进入率");
+        row.viewsLong = toLong(row.views);
+        row.likesLong = toLong(row.likes);
+        row.commentsLong = toLong(row.comments);
+        row.favoritesLong = toLong(row.favorites);
+        row.sharesLong = toLong(row.shares);
+        row.newFollowersLong = toLong(row.newFollowers);
+        row.coverClickRateDouble = toDouble(row.coverClickRate);
+        row.copyExpandRateDouble = toDouble(row.copyExpandRate);
+        row.copyReadRateDouble = toDouble(row.copyReadRate);
+        row.commentEnterRateDouble = toDouble(row.commentEnterRate);
+        row.completionRateDouble = toDouble(row.completionRate);
+        row.fiveSecondCompletionRateDouble = toDouble(row.fiveSecondCompletionRate);
         return row;
     }
 
     private void writeSummarySheet(XSSFWorkbook workbook, LocalDate reportDate, List<ReportRow> rows) {
         XSSFSheet sheet = workbook.createSheet("汇总看板");
         Row header = sheet.createRow(0);
-        String[] titles = {"日期", "内容数", "抖音数", "小红书数", "视频号数", "总播放量", "总点赞量", "总评论量", "总收藏量", "总分享量", "总涨粉量", "平均封面点击率", "平均文案展开率", "平均文案完读率", "平均评论进入率"};
-        for (int i = 0; i < titles.length; i++) {
-            header.createCell(i).setCellValue(titles[i]);
-        }
+        String[] titles = {"日期", "作品数", "图文数", "视频数", "抖音数", "小红书数", "视频号数", "总播放量", "总点赞量", "总评论量", "总收藏量", "总分享量", "总涨粉量", "平均封面点击率", "平均文案展开率", "平均文案完读率", "平均评论进入率", "平均完播率", "平均5s完播率"};
+        for (int i = 0; i < titles.length; i++) header.createCell(i).setCellValue(titles[i]);
 
         Row row = sheet.createRow(1);
         row.createCell(0).setCellValue(String.valueOf(reportDate));
         row.createCell(1).setCellValue(rows.size());
-        row.createCell(2).setCellValue(rows.stream().filter(item -> "DOUYIN".equalsIgnoreCase(item.platformCode)).count());
-        row.createCell(3).setCellValue(rows.stream().filter(item -> "XIAOHONGSHU".equalsIgnoreCase(item.platformCode)).count());
-        row.createCell(4).setCellValue(rows.stream().filter(item -> "WECHAT_CHANNEL".equalsIgnoreCase(item.platformCode)).count());
-        row.createCell(5).setCellValue(rows.stream().mapToLong(item -> item.viewsLong).sum());
-        row.createCell(6).setCellValue(rows.stream().mapToLong(item -> item.likesLong).sum());
-        row.createCell(7).setCellValue(rows.stream().mapToLong(item -> item.commentsLong).sum());
-        row.createCell(8).setCellValue(rows.stream().mapToLong(item -> item.favoritesLong).sum());
-        row.createCell(9).setCellValue(rows.stream().mapToLong(item -> item.sharesLong).sum());
-        row.createCell(10).setCellValue(rows.stream().mapToLong(item -> item.newFollowersLong).sum());
-        row.createCell(11).setCellValue(averagePercent(rows, item -> item.coverClickRateDouble));
-        row.createCell(12).setCellValue(averagePercent(rows, item -> item.copyExpandRateDouble));
-        row.createCell(13).setCellValue(averagePercent(rows, item -> item.copyReadRateDouble));
-        row.createCell(14).setCellValue(averagePercent(rows, item -> item.commentEnterRateDouble));
+        row.createCell(2).setCellValue(rows.stream().filter(item -> "IMAGE_TEXT".equalsIgnoreCase(item.contentType)).count());
+        row.createCell(3).setCellValue(rows.stream().filter(item -> "VIDEO".equalsIgnoreCase(item.contentType)).count());
+        row.createCell(4).setCellValue(rows.stream().filter(item -> "DOUYIN".equalsIgnoreCase(item.platformCode)).count());
+        row.createCell(5).setCellValue(rows.stream().filter(item -> "XIAOHONGSHU".equalsIgnoreCase(item.platformCode)).count());
+        row.createCell(6).setCellValue(rows.stream().filter(item -> "WECHAT_CHANNEL".equalsIgnoreCase(item.platformCode)).count());
+        row.createCell(7).setCellValue(rows.stream().mapToLong(item -> item.viewsLong).sum());
+        row.createCell(8).setCellValue(rows.stream().mapToLong(item -> item.likesLong).sum());
+        row.createCell(9).setCellValue(rows.stream().mapToLong(item -> item.commentsLong).sum());
+        row.createCell(10).setCellValue(rows.stream().mapToLong(item -> item.favoritesLong).sum());
+        row.createCell(11).setCellValue(rows.stream().mapToLong(item -> item.sharesLong).sum());
+        row.createCell(12).setCellValue(rows.stream().mapToLong(item -> item.newFollowersLong).sum());
+        row.createCell(13).setCellValue(averagePercent(rows, item -> item.coverClickRateDouble));
+        row.createCell(14).setCellValue(averagePercent(rows, item -> item.copyExpandRateDouble));
+        row.createCell(15).setCellValue(averagePercent(rows, item -> item.copyReadRateDouble));
+        row.createCell(16).setCellValue(averagePercent(rows, item -> item.commentEnterRateDouble));
+        row.createCell(17).setCellValue(averagePercent(rows, item -> item.completionRateDouble));
+        row.createCell(18).setCellValue(averagePercent(rows, item -> item.fiveSecondCompletionRateDouble));
     }
 
     private void writeDetailSheet(XSSFWorkbook workbook, List<ReportRow> rows) {
-        XSSFSheet sheet = workbook.createSheet("内容明细");
+        XSSFSheet sheet = workbook.createSheet("平台内容明细");
         Row header = sheet.createRow(0);
-        String[] titles = {"日期", "主题包", "平台", "账号", "平台账号ID", "子主题", "内容类型", "标题", "内容说明", "运营人员", "媒体人员", "播放量", "点赞量", "评论量", "收藏量", "分享量", "涨粉量", "封面点击率", "文案展开率", "文案完读率", "评论进入率", "状态", "创建时间"};
-        for (int i = 0; i < titles.length; i++) {
-            header.createCell(i).setCellValue(titles[i]);
-        }
+        String[] titles = {"日期", "主题包", "平台", "账号名称", "平台账号ID", "子主题", "作品ID", "作品类型", "作品标题", "内容说明", "运营人员", "媒体人员", "播放量", "点赞量", "评论量", "收藏量", "分享量", "涨粉量", "封面点击率", "文案展开率", "文案完读率", "评论进入率", "完播率", "5s完播率", "状态", "创建时间"};
+        for (int i = 0; i < titles.length; i++) header.createCell(i).setCellValue(titles[i]);
         int rowIndex = 1;
         for (ReportRow item : rows) {
             Row row = sheet.createRow(rowIndex++);
@@ -185,6 +178,7 @@ public class DataOpsDailyReportExportController {
             row.createCell(c++).setCellValue(item.accountName);
             row.createCell(c++).setCellValue(item.platformUserId);
             row.createCell(c++).setCellValue(item.subTopicName);
+            row.createCell(c++).setCellValue(item.contentId == null ? "" : String.valueOf(item.contentId));
             row.createCell(c++).setCellValue(item.contentTypeLabel);
             row.createCell(c++).setCellValue(item.contentTitle);
             row.createCell(c++).setCellValue(item.contentSummary);
@@ -200,18 +194,18 @@ public class DataOpsDailyReportExportController {
             row.createCell(c++).setCellValue(item.copyExpandRate);
             row.createCell(c++).setCellValue(item.copyReadRate);
             row.createCell(c++).setCellValue(item.commentEnterRate);
+            row.createCell(c++).setCellValue(item.completionRate);
+            row.createCell(c++).setCellValue(item.fiveSecondCompletionRate);
             row.createCell(c++).setCellValue(item.recognitionStatus);
             row.createCell(c).setCellValue(item.createdAt);
         }
     }
 
     private void writeMetricSheet(XSSFWorkbook workbook, List<ReportRow> rows) {
-        XSSFSheet sheet = workbook.createSheet("指标明细");
+        XSSFSheet sheet = workbook.createSheet("每条数据明细");
         Row header = sheet.createRow(0);
-        String[] titles = {"日期", "主题包", "平台", "账号", "子主题", "标题", "内容类型", "数据页", "来源图片", "数据标签", "识别值", "单位", "状态", "识别时间", "来源"};
-        for (int i = 0; i < titles.length; i++) {
-            header.createCell(i).setCellValue(titles[i]);
-        }
+        String[] titles = {"日期", "主题包", "平台", "账号名称", "平台账号ID", "子主题", "作品ID", "作品类型", "作品标题", "数据页", "来源图片", "数据标签", "识别值", "单位", "状态", "识别时间", "来源"};
+        for (int i = 0; i < titles.length; i++) header.createCell(i).setCellValue(titles[i]);
         int rowIndex = 1;
         for (ReportRow item : rows) {
             for (Map<String, Object> metric : item.metricRows) {
@@ -220,10 +214,12 @@ public class DataOpsDailyReportExportController {
                 row.createCell(c++).setCellValue(item.date);
                 row.createCell(c++).setCellValue(item.packageName);
                 row.createCell(c++).setCellValue(item.platformName);
-                row.createCell(c++).setCellValue(item.accountName);
+                row.createCell(c++).setCellValue(firstNonBlank(text(metric.get("accountName")), item.accountName));
+                row.createCell(c++).setCellValue(firstNonBlank(text(metric.get("platformUserId")), item.platformUserId));
                 row.createCell(c++).setCellValue(item.subTopicName);
-                row.createCell(c++).setCellValue(item.contentTitle);
+                row.createCell(c++).setCellValue(item.contentId == null ? "" : String.valueOf(item.contentId));
                 row.createCell(c++).setCellValue(item.contentTypeLabel);
+                row.createCell(c++).setCellValue(firstNonBlank(text(metric.get("videoTitle")), text(metric.get("contentTitle")), item.contentTitle));
                 row.createCell(c++).setCellValue(metricGroupLabel(text(metric.get("metricGroup"))));
                 row.createCell(c++).setCellValue(assetLabel(metric.get("assetId")));
                 row.createCell(c++).setCellValue(text(metric.get("metricLabel")));
@@ -236,19 +232,17 @@ public class DataOpsDailyReportExportController {
         }
     }
 
+    private String findFirstMetricText(List<Map<String, Object>> metricRows, String key) {
+        for (Map<String, Object> metricRow : metricRows) {
+            String value = text(metricRow.get(key));
+            if (!value.isBlank()) return value;
+        }
+        return "";
+    }
+
     private String metricText(Map<String, Map<String, Object>> metricsByLabel, String... labels) {
         Map<String, Object> metric = findMetric(metricsByLabel, labels);
         return metric == null ? "" : metricValueText(metric);
-    }
-
-    private long metricLong(Map<String, Map<String, Object>> metricsByLabel, String... labels) {
-        Map<String, Object> metric = findMetric(metricsByLabel, labels);
-        return metric == null ? 0L : metricLong(metric);
-    }
-
-    private double metricDouble(Map<String, Map<String, Object>> metricsByLabel, String... labels) {
-        Map<String, Object> metric = findMetric(metricsByLabel, labels);
-        return metric == null ? 0D : metricDouble(metric);
     }
 
     private Map<String, Object> findMetric(Map<String, Map<String, Object>> metricsByLabel, String... labels) {
@@ -266,22 +260,12 @@ public class DataOpsDailyReportExportController {
         return numeric == null ? "" : stripTrailingZeros(String.valueOf(numeric));
     }
 
-    private long metricLong(Map<String, Object> metric) {
-        String value = metricValueText(metric);
-        return toLong(value);
-    }
-
-    private double metricDouble(Map<String, Object> metric) {
-        String value = metricValueText(metric);
-        return toDouble(value);
-    }
-
     private double averagePercent(List<ReportRow> rows, PercentExtractor extractor) {
         double sum = 0D;
         int count = 0;
         for (ReportRow row : rows) {
             double value = extractor.extract(row);
-            if (value > 0D || row.coverClickRateDouble == value || row.copyExpandRateDouble == value || row.copyReadRateDouble == value || row.commentEnterRateDouble == value) {
+            if (!Double.isNaN(value)) {
                 sum += value;
                 count++;
             }
@@ -311,11 +295,6 @@ public class DataOpsDailyReportExportController {
         return "VIDEO".equalsIgnoreCase(contentType) ? "视频" : "图文";
     }
 
-    private Map<String, Object> queryOptional(String sql, Object... args) {
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, args);
-        return rows.isEmpty() ? null : rows.get(0);
-    }
-
     private String normalizeLabel(String value) {
         return value == null ? "" : value.replaceAll("[^\\p{IsAlphabetic}\\p{IsDigit}\\p{IsHan}]", "").toLowerCase(Locale.ROOT);
     }
@@ -334,10 +313,10 @@ public class DataOpsDailyReportExportController {
     }
 
     private double toDouble(String value) {
-        if (value == null || value.isBlank()) return 0D;
+        if (value == null || value.isBlank()) return Double.NaN;
         String cleaned = value.replaceAll("[^0-9.\\-]", "").trim();
-        if (cleaned.isEmpty() || "-".equals(cleaned) || ".".equals(cleaned)) return 0D;
-        try { return Double.parseDouble(cleaned); } catch (Exception ex) { return 0D; }
+        if (cleaned.isEmpty() || "-".equals(cleaned) || ".".equals(cleaned)) return Double.NaN;
+        try { return Double.parseDouble(cleaned); } catch (Exception ex) { return Double.NaN; }
     }
 
     private String stripTrailingZeros(String value) {
@@ -365,6 +344,7 @@ public class DataOpsDailyReportExportController {
         String accountName = "";
         String platformUserId = "";
         String subTopicName = "";
+        Long contentId;
         String contentType = "";
         String contentTypeLabel = "";
         String contentTitle = "";
@@ -383,16 +363,20 @@ public class DataOpsDailyReportExportController {
         String copyExpandRate = "";
         String copyReadRate = "";
         String commentEnterRate = "";
+        String completionRate = "";
+        String fiveSecondCompletionRate = "";
         long viewsLong;
         long likesLong;
         long commentsLong;
         long favoritesLong;
         long sharesLong;
         long newFollowersLong;
-        double coverClickRateDouble;
-        double copyExpandRateDouble;
-        double copyReadRateDouble;
-        double commentEnterRateDouble;
+        double coverClickRateDouble = Double.NaN;
+        double copyExpandRateDouble = Double.NaN;
+        double copyReadRateDouble = Double.NaN;
+        double commentEnterRateDouble = Double.NaN;
+        double completionRateDouble = Double.NaN;
+        double fiveSecondCompletionRateDouble = Double.NaN;
         List<Map<String, Object>> metricRows = new ArrayList<>();
     }
 
