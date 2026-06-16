@@ -20,7 +20,7 @@ public class DataOperationAssetRecognitionController {
     }
 
     @PostMapping("/{assetId}/recognize-current")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA','MEDIA','OPERATOR')")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<ImageRecognitionDtos.Response> recognizeCurrentAsset(@PathVariable Long assetId,
                                                                             @RequestParam(required = false) String platform,
                                                                             @RequestParam(required = false) String scene) {
