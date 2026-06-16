@@ -51,26 +51,15 @@ public class DataOperationContentConfirmController {
         if (title == null) throw BusinessException.badRequest("请确认内容标题");
         LocalDate contentDate = request.contentDate() == null ? LocalDate.now() : request.contentDate();
 
-        Long existingId = queryLong("""
-                select id
-                from data_operation_content
-                where platform_topic_id = ? and content_type = ?
-                order by id desc
-                limit 1
-                """, topicId, contentType);
-        Long id;
-        if (existingId != null) {
+        Long id = request.contentId();
+        if (id != null) {
+            Map<String, Object> existing = queryOne("select * from data_operation_content where id = ? and platform_topic_id = ?", id, topicId);
+            if (existing.isEmpty()) throw BusinessException.notFound("要编辑的内容不存在");
             jdbc.update("""
                     update data_operation_content
-                    set platform_code = ?,
-                        content_title = ?,
-                        content_summary = ?,
-                        content_date = ?,
-                        content_type = ?,
-                        updated_at = current_timestamp(6)
+                    set platform_code = ?, content_title = ?, content_summary = ?, content_date = ?, content_type = ?, updated_at = current_timestamp(6)
                     where id = ?
-                    """, platformCode, title, request.contentSummary(), Date.valueOf(contentDate), contentType, existingId);
-            id = existingId;
+                    """, platformCode, title, request.contentSummary(), Date.valueOf(contentDate), contentType, id);
         } else {
             KeyHolder keyHolder = new GeneratedKeyHolder();
             MapSqlParameterSource params = new MapSqlParameterSource()
@@ -90,37 +79,17 @@ public class DataOperationContentConfirmController {
         }
         jdbc.update("""
                 update data_operation_platform_topic
-                set content_type = ?,
-                    ocr_content_title = coalesce(?, ocr_content_title),
-                    updated_at = current_timestamp(6)
+                set content_type = ?, ocr_content_title = ?, updated_at = current_timestamp(6)
                 where id = ?
                 """, contentType, title, topicId);
-        synchronizeContentType(topicId, id, contentType);
+        synchronizeSingleContent(id, contentType);
         return ApiResponse.ok(queryOne("select * from data_operation_content where id = ?", id));
     }
 
-    private void synchronizeContentType(Long topicId, Long contentId, String contentType) {
-        jdbc.update("update data_operation_content set content_type = ?, updated_at = current_timestamp(6) where platform_topic_id = ?", contentType, topicId);
-        jdbc.update("update data_operation_asset set content_type = ? where platform_topic_id = ? and asset_type = 'DATA_SCREENSHOT'", contentType, topicId);
-        jdbc.update("update data_operation_video set content_type = ?, updated_at = current_timestamp(6) where platform_topic_id = ?", contentType, topicId);
-        jdbc.update("update data_operation_metric_value set content_type = ?, updated_at = current_timestamp(6) where platform_topic_id = ?", contentType, topicId);
-        jdbc.update("""
-                delete mv
-                from data_operation_metric_value mv
-                left join data_operation_metric_definition d
-                  on d.platform_code = mv.platform_code
-                 and d.content_type = mv.content_type
-                 and d.metric_group = mv.metric_group
-                 and d.metric_key = mv.metric_key
-                 and d.enabled = 1
-                where mv.platform_topic_id = ?
-                  and d.id is null
-                """, topicId);
-        jdbc.update("""
-                update data_operation_asset
-                set content_id = ?
-                where platform_topic_id = ? and asset_type = 'DATA_SCREENSHOT'
-                """, contentId, topicId);
+    private void synchronizeSingleContent(Long contentId, String contentType) {
+        jdbc.update("update data_operation_content set content_type = ?, updated_at = current_timestamp(6) where id = ?", contentType, contentId);
+        jdbc.update("update data_operation_asset set content_type = ? where content_id = ? and asset_type = 'DATA_SCREENSHOT'", contentType, contentId);
+        jdbc.update("update data_operation_metric_value set content_type = ?, updated_at = current_timestamp(6) where content_id = ?", contentType, contentId);
     }
 
     private void ensureColumns() {
@@ -156,12 +125,6 @@ public class DataOperationContentConfirmController {
         return rows.isEmpty() ? Map.of() : new LinkedHashMap<>(rows.get(0));
     }
 
-    private Long queryLong(String sql, Object... args) {
-        List<Map<String, Object>> rows = jdbc.queryForList(sql, args);
-        if (rows.isEmpty()) return null;
-        return numberToLong(rows.get(0).values().stream().findFirst().orElse(null));
-    }
-
     private Long numberToLong(Object value) {
         if (value instanceof Number number) return number.longValue();
         if (value == null) return null;
@@ -170,7 +133,8 @@ public class DataOperationContentConfirmController {
 
     private String stringValue(Object value) { return value == null ? null : String.valueOf(value); }
 
-    public record ConfirmCurrentContentRequest(String contentTitle,
+    public record ConfirmCurrentContentRequest(Long contentId,
+                                               String contentTitle,
                                                String contentSummary,
                                                LocalDate contentDate,
                                                String contentType) {}
