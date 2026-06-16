@@ -399,14 +399,19 @@ public class DataOperationMetricService {
         if (args == null || args.length == 0 || args[0] == null) return null;
         List<Map<String, Object>> rows = jdbc.queryForList(sql, args);
         if (rows.isEmpty()) return null;
-        Object value = rows.get(0).values().stream().findFirst().orElse(null);
+        Collection<Object> values = rows.get(0).values();
+        if (values.isEmpty()) return null;
+        Object value = values.iterator().next();
         return value == null ? null : String.valueOf(value);
     }
 
     private Long queryLong(String sql, Object... args) {
+        if (args == null || args.length == 0 || args[0] == null) return null;
         List<Map<String, Object>> rows = jdbc.queryForList(sql, args);
         if (rows.isEmpty()) return null;
-        Object value = rows.get(0).values().stream().findFirst().orElse(null);
+        Collection<Object> values = rows.get(0).values();
+        if (values.isEmpty()) return null;
+        Object value = values.iterator().next();
         return numberToLong(value);
     }
 
