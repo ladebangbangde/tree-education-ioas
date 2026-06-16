@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -21,6 +22,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 @RestController
 @RequestMapping("/api/v1/data-ops/reports-export")
@@ -36,6 +40,44 @@ public class DataOpsDailyReportExportController {
     @PostMapping("/daily")
     public void exportDailyReport(@RequestBody DailyReportRequest request, HttpServletResponse response) throws IOException {
         LocalDate reportDate = request == null || request.date() == null ? LocalDate.now() : request.date();
+        String requestedContentType = normalizeContentType(request == null ? null : request.contentType());
+
+        if (!requestedContentType.isBlank()) {
+            List<ReportRow> rows = loadReportRows(reportDate, requestedContentType);
+            String typeLabel = contentTypeLabel(requestedContentType);
+            String fileName = "数据操作日报_" + reportDate + "_" + typeLabel + ".xlsx";
+            response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + URLEncoder.encode(fileName, StandardCharsets.UTF_8));
+            response.getOutputStream().write(buildWorkbookBytes(reportDate, rows, typeLabel));
+            return;
+        }
+
+        String zipFileName = "数据操作日报_" + reportDate + "_图文与视频.zip";
+        response.setContentType("application/octet-stream");
+        response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + URLEncoder.encode(zipFileName, StandardCharsets.UTF_8));
+        try (ZipOutputStream zip = new ZipOutputStream(response.getOutputStream(), StandardCharsets.UTF_8)) {
+            writeWorkbookEntry(zip, "数据操作日报_" + reportDate + "_图文.xlsx", reportDate, loadReportRows(reportDate, "IMAGE_TEXT"), "图文");
+            writeWorkbookEntry(zip, "数据操作日报_" + reportDate + "_视频.xlsx", reportDate, loadReportRows(reportDate, "VIDEO"), "视频");
+        }
+    }
+
+    private void writeWorkbookEntry(ZipOutputStream zip, String fileName, LocalDate reportDate, List<ReportRow> rows, String typeLabel) throws IOException {
+        zip.putNextEntry(new ZipEntry(fileName));
+        zip.write(buildWorkbookBytes(reportDate, rows, typeLabel));
+        zip.closeEntry();
+    }
+
+    private byte[] buildWorkbookBytes(LocalDate reportDate, List<ReportRow> rows, String typeLabel) throws IOException {
+        try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            writeSummarySheet(workbook, reportDate, rows, typeLabel);
+            writeDetailSheet(workbook, rows, typeLabel);
+            writeMetricSheet(workbook, rows, typeLabel);
+            workbook.write(out);
+            return out.toByteArray();
+        }
+    }
+
+    private List<ReportRow> loadReportRows(LocalDate reportDate, String contentType) {
         List<Map<String, Object>> contents = jdbcTemplate.queryForList("""
                 select
                   p.id as package_id,
@@ -60,20 +102,10 @@ public class DataOpsDailyReportExportController {
                 join data_operation_platform_topic t on t.id = c.platform_topic_id
                 join data_operation_topic_package p on p.id = c.package_id
                 where p.topic_date = ?
+                  and c.content_type = ?
                 order by p.id desc, t.id desc, c.id desc
-                """, Date.valueOf(reportDate));
-
-        List<ReportRow> reportRows = contents.stream().map(this::buildReportRow).toList();
-
-        String fileName = "数据操作日报_" + reportDate + ".xlsx";
-        try (XSSFWorkbook workbook = new XSSFWorkbook()) {
-            writeSummarySheet(workbook, reportDate, reportRows);
-            writeDetailSheet(workbook, reportRows);
-            writeMetricSheet(workbook, reportRows);
-            response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-            response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + URLEncoder.encode(fileName, StandardCharsets.UTF_8));
-            workbook.write(response.getOutputStream());
-        }
+                """, Date.valueOf(reportDate), contentType);
+        return contents.stream().map(this::buildReportRow).toList();
     }
 
     private ReportRow buildReportRow(Map<String, Object> content) {
@@ -135,12 +167,8 @@ public class DataOpsDailyReportExportController {
         return row;
     }
 
-    /**
-     * 汇总看板现在按“主题/账号”聚合，而不是统计作品数量和平台数量。
-     * 一行代表：某一天、某个主题包下、某个平台子主题/账号的总数据。
-     */
-    private void writeSummarySheet(XSSFWorkbook workbook, LocalDate reportDate, List<ReportRow> rows) {
-        XSSFSheet sheet = workbook.createSheet("主题账号汇总");
+    private void writeSummarySheet(XSSFWorkbook workbook, LocalDate reportDate, List<ReportRow> rows, String typeLabel) {
+        XSSFSheet sheet = workbook.createSheet(typeLabel + "主题账号汇总");
         Row header = sheet.createRow(0);
         String[] titles = {
                 "日期", "主题包", "平台子主题", "平台", "账号名称", "平台账号ID", "运营人员", "媒体人员",
@@ -167,7 +195,7 @@ public class DataOpsDailyReportExportController {
         if (groups.isEmpty()) {
             Row row = sheet.createRow(1);
             row.createCell(0).setCellValue(String.valueOf(reportDate));
-            row.createCell(1).setCellValue("当日无已确认作品数据");
+            row.createCell(1).setCellValue("当日无已确认" + typeLabel + "数据");
             return;
         }
 
@@ -199,11 +227,8 @@ public class DataOpsDailyReportExportController {
         }
     }
 
-    /**
-     * 平台内容明细一行代表一个作品。
-     */
-    private void writeDetailSheet(XSSFWorkbook workbook, List<ReportRow> rows) {
-        XSSFSheet sheet = workbook.createSheet("作品数据明细");
+    private void writeDetailSheet(XSSFWorkbook workbook, List<ReportRow> rows, String typeLabel) {
+        XSSFSheet sheet = workbook.createSheet(typeLabel + "作品数据明细");
         Row header = sheet.createRow(0);
         String[] titles = {"日期", "主题包", "平台子主题", "平台", "账号名称", "平台账号ID", "运营人员", "媒体人员", "作品ID", "作品类型", "作品标题", "内容说明", "播放量", "点赞量", "评论量", "收藏量", "分享量", "涨粉量", "封面点击率", "文案展开率", "文案完读率", "评论进入率", "完播率", "5s完播率", "状态", "创建时间"};
         for (int i = 0; i < titles.length; i++) header.createCell(i).setCellValue(titles[i]);
@@ -240,11 +265,8 @@ public class DataOpsDailyReportExportController {
         }
     }
 
-    /**
-     * 每条数据明细一行代表一个 OCR 指标。
-     */
-    private void writeMetricSheet(XSSFWorkbook workbook, List<ReportRow> rows) {
-        XSSFSheet sheet = workbook.createSheet("OCR指标明细");
+    private void writeMetricSheet(XSSFWorkbook workbook, List<ReportRow> rows, String typeLabel) {
+        XSSFSheet sheet = workbook.createSheet(typeLabel + "OCR指标明细");
         Row header = sheet.createRow(0);
         String[] titles = {"日期", "主题包", "平台子主题", "平台", "账号名称", "平台账号ID", "运营人员", "媒体人员", "作品ID", "作品类型", "作品标题", "数据页", "来源图片", "数据标签", "识别值", "单位", "状态", "识别时间", "来源"};
         for (int i = 0; i < titles.length; i++) header.createCell(i).setCellValue(titles[i]);
@@ -339,6 +361,13 @@ public class DataOpsDailyReportExportController {
         return "VIDEO".equalsIgnoreCase(contentType) ? "视频" : "图文";
     }
 
+    private String normalizeContentType(String contentType) {
+        if (contentType == null) return "";
+        String value = contentType.trim().toUpperCase(Locale.ROOT);
+        if (Objects.equals(value, "IMAGE_TEXT") || Objects.equals(value, "VIDEO")) return value;
+        return "";
+    }
+
     private String normalizeLabel(String value) {
         return value == null ? "" : value.replaceAll("[^\\p{IsAlphabetic}\\p{IsDigit}\\p{IsHan}]", "").toLowerCase(Locale.ROOT);
     }
@@ -429,5 +458,5 @@ public class DataOpsDailyReportExportController {
         double extract(ReportRow row);
     }
 
-    public record DailyReportRequest(LocalDate date) {}
+    public record DailyReportRequest(LocalDate date, String contentType) {}
 }
