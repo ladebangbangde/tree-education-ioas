@@ -43,8 +43,14 @@ public class DataOperationContentConfirmController {
         if (topic.isEmpty()) throw BusinessException.notFound("平台子主题不存在");
         Long packageId = numberToLong(topic.get("package_id"));
         if (packageId == null) throw BusinessException.badRequest("平台子主题缺少主题包归属");
+        if (!isConfirmed(topic)) throw BusinessException.badRequest("请先确认账号和账号内容类型，再新增作品");
         String platformCode = stringValue(topic.get("platform_code"));
-        String contentType = normalizeContentType(request.contentType());
+        String lockedType = normalizeContentType(stringValue(topic.get("content_type")));
+        String requestedType = request.contentType() == null ? lockedType : normalizeContentType(request.contentType());
+        if (!lockedType.equals(requestedType)) {
+            throw BusinessException.badRequest("该账号已确认是" + contentTypeLabel(lockedType) + "账号，请先手动更改账号内容类型后再新增" + contentTypeLabel(requestedType));
+        }
+        String contentType = lockedType;
         String title = cleanTitle(request.contentTitle());
         if (title == null) title = cleanTitle(stringValue(topic.get("ocr_content_title")));
         if (title == null) title = cleanTitle(stringValue(topic.get("sub_topic_name")));
@@ -55,6 +61,10 @@ public class DataOperationContentConfirmController {
         if (id != null) {
             Map<String, Object> existing = queryOne("select * from data_operation_content where id = ? and platform_topic_id = ?", id, topicId);
             if (existing.isEmpty()) throw BusinessException.notFound("要编辑的内容不存在");
+            String existingType = normalizeContentType(stringValue(existing.get("content_type")));
+            if (!contentType.equals(existingType)) {
+                throw BusinessException.badRequest("不能在当前账号类型下编辑另一种内容，请先切换账号内容类型");
+            }
             jdbc.update("""
                     update data_operation_content
                     set platform_code = ?, content_title = ?, content_summary = ?, content_date = ?, content_type = ?, updated_at = current_timestamp(6)
@@ -96,6 +106,7 @@ public class DataOperationContentConfirmController {
         ensureColumn("data_operation_content", "content_type", "alter table data_operation_content add column content_type varchar(32) not null default 'IMAGE_TEXT' after platform_code");
         ensureColumn("data_operation_asset", "content_type", "alter table data_operation_asset add column content_type varchar(32) null after asset_type");
         ensureColumn("data_operation_platform_topic", "content_type", "alter table data_operation_platform_topic add column content_type varchar(32) null after platform_name");
+        ensureColumn("data_operation_platform_topic", "account_confirmed_flag", "alter table data_operation_platform_topic add column account_confirmed_flag tinyint(1) not null default 0 after ocr_platform_user_id");
     }
 
     private void ensureColumn(String table, String column, String ddl) {
@@ -105,12 +116,22 @@ public class DataOperationContentConfirmController {
         } catch (RuntimeException ignored) {}
     }
 
+    private boolean isConfirmed(Map<String, Object> topic) {
+        Object value = topic.get("account_confirmed_flag");
+        if (value instanceof Number number) return number.intValue() == 1;
+        return Boolean.parseBoolean(String.valueOf(value));
+    }
+
     private String normalizeContentType(String value) {
         if (value == null || value.isBlank()) return "IMAGE_TEXT";
         String type = value.trim().toUpperCase(Locale.ROOT);
         if ("VIDEO".equals(type)) return "VIDEO";
         if ("IMAGE_TEXT".equals(type) || "IMAGE".equals(type) || "TEXT".equals(type)) return "IMAGE_TEXT";
         throw BusinessException.badRequest("不支持的内容类型：" + value);
+    }
+
+    private String contentTypeLabel(String value) {
+        return "VIDEO".equalsIgnoreCase(value) ? "视频" : "图文";
     }
 
     private String cleanTitle(String value) {
