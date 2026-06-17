@@ -14,23 +14,23 @@ import java.util.Locale;
 public class UserAdminService {
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final List<UserAdminDtos.OptionItem> ROLE_OPTIONS = List.of(
-            new UserAdminDtos.OptionItem("SUPER_ADMIN", "System Admin"),
-            new UserAdminDtos.OptionItem("CONSULTANT", "Consultant"),
-            new UserAdminDtos.OptionItem("MEDIA", "Media"),
-            new UserAdminDtos.OptionItem("OPERATOR", "Operator"),
-            new UserAdminDtos.OptionItem("DATA", "Data Operator"),
-            new UserAdminDtos.OptionItem("ADMINISTRATIVE", "Administrative"),
+            new UserAdminDtos.OptionItem("SUPER_ADMIN", "系统超管"),
+            new UserAdminDtos.OptionItem("CONSULTANT", "顾问"),
+            new UserAdminDtos.OptionItem("MEDIA", "媒体"),
+            new UserAdminDtos.OptionItem("OPERATOR", "运营"),
+            new UserAdminDtos.OptionItem("DATA", "数据操作员"),
+            new UserAdminDtos.OptionItem("ADMINISTRATIVE", "行政"),
             new UserAdminDtos.OptionItem("ANCHOR", "主播")
-
     );
     private static final List<UserAdminDtos.OptionItem> DEPARTMENT_OPTIONS = List.of(
-            new UserAdminDtos.OptionItem("SYSTEM", "System"),
-            new UserAdminDtos.OptionItem("CONSULTING", "Consulting"),
-            new UserAdminDtos.OptionItem("DELIVERY", "Delivery"),
-            new UserAdminDtos.OptionItem("MEDIA", "Media"),
-            new UserAdminDtos.OptionItem("OPERATION", "Operation"),
-            new UserAdminDtos.OptionItem("DATA", "Data"),
-            new UserAdminDtos.OptionItem("ADMIN", "Admin")
+            new UserAdminDtos.OptionItem("SYSTEM", "系统管理部"),
+            new UserAdminDtos.OptionItem("CONSULTING", "咨询中心"),
+            new UserAdminDtos.OptionItem("DELIVERY", "申请交付中心"),
+            new UserAdminDtos.OptionItem("MEDIA", "媒体部"),
+            new UserAdminDtos.OptionItem("OPERATION", "运营部"),
+            new UserAdminDtos.OptionItem("DATA", "数据部"),
+            new UserAdminDtos.OptionItem("ANCHOR", "主播部"),
+            new UserAdminDtos.OptionItem("ADMIN", "行政部")
     );
 
     private final UserRepository users;
@@ -58,7 +58,7 @@ public class UserAdminService {
 
     @Transactional(readOnly = true)
     public UserAdminDtos.UserOptions options() {
-        return new UserAdminDtos.UserOptions(ROLE_OPTIONS, DEPARTMENT_OPTIONS, List.of(new UserAdminDtos.OptionItem("ACTIVE", "Active"), new UserAdminDtos.OptionItem("DISABLED", "Disabled")));
+        return new UserAdminDtos.UserOptions(ROLE_OPTIONS, DEPARTMENT_OPTIONS, List.of(new UserAdminDtos.OptionItem("ACTIVE", "启用"), new UserAdminDtos.OptionItem("DISABLED", "停用")));
     }
 
     @Transactional
