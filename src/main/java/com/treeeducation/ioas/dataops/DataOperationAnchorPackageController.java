@@ -10,7 +10,6 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -33,18 +32,6 @@ public class DataOperationAnchorPackageController {
     public DataOperationAnchorPackageController(JdbcTemplate jdbc, NamedParameterJdbcTemplate namedJdbc) {
         this.jdbc = jdbc;
         this.namedJdbc = namedJdbc;
-    }
-
-    @GetMapping("/anchor-users")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA')")
-    public ApiResponse<List<Map<String, Object>>> anchorUsers() {
-        return ApiResponse.ok(jdbc.queryForList("""
-                select id, username, display_name, department, role_code
-                from sys_user
-                where status = 'ACTIVE'
-                  and role_code = 'ANCHOR'
-                order by id desc
-                """));
     }
 
     @PostMapping("/packages-with-anchor")
