@@ -12,7 +12,7 @@ RUN mvn -B -s /root/.m2/settings.xml \
     -Dmaven.wagon.http.retryHandler.count=5 \
     clean package -DskipTests
 
-FROM eclipse-temurin:17-jre
+FROM maven:3.9.9-eclipse-temurin-17
 WORKDIR /app
 
 ENV TZ=Asia/Shanghai \
