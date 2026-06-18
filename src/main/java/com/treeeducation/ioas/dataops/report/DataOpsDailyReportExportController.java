@@ -2,7 +2,16 @@ package com.treeeducation.ioas.dataops.report;
 
 import com.treeeducation.ioas.dataops.DataOperationMetricService;
 import jakarta.servlet.http.HttpServletResponse;
+import org.apache.poi.ss.usermodel.BorderStyle;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.Font;
+import org.apache.poi.ss.usermodel.HorizontalAlignment;
+import org.apache.poi.ss.usermodel.IndexedColors;
 import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.VerticalAlignment;
+import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -11,24 +20,41 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.sql.Date;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 @RestController
 @RequestMapping("/api/v1/data-ops/reports-export")
 public class DataOpsDailyReportExportController {
+    private static final String[] DAILY_HEADERS = {
+            "运营",
+            "账号",
+            "类型",
+            "标题",
+            "播放量",
+            "点赞量",
+            "评论量",
+            "收藏量",
+            "整体完播率",
+            "5S完播率",
+            "文案展开率",
+            "评论进入率",
+            "单帖涨粉量",
+            "负责美工",
+            "负责口播",
+            "发布时间",
+            "备注"
+    };
+
     private final JdbcTemplate jdbcTemplate;
     private final DataOperationMetricService metricService;
 
@@ -40,44 +66,25 @@ public class DataOpsDailyReportExportController {
     @PostMapping("/daily")
     public void exportDailyReport(@RequestBody DailyReportRequest request, HttpServletResponse response) throws IOException {
         LocalDate reportDate = request == null || request.date() == null ? LocalDate.now() : request.date();
-        String requestedContentType = normalizeContentType(request == null ? null : request.contentType());
+        List<ReportRow> rows = loadReportRows(reportDate);
+        rows.sort(Comparator
+                .comparing((ReportRow row) -> row.platformCode)
+                .thenComparing(row -> row.operatorNames)
+                .thenComparing(row -> row.accountName)
+                .thenComparing(row -> row.platformUserId)
+                .thenComparing(row -> row.contentId == null ? 0L : row.contentId));
 
-        if (!requestedContentType.isBlank()) {
-            List<ReportRow> rows = loadReportRows(reportDate, requestedContentType);
-            String typeLabel = contentTypeLabel(requestedContentType);
-            String fileName = "数据操作日报_" + reportDate + "_" + typeLabel + ".xlsx";
-            response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-            response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + URLEncoder.encode(fileName, StandardCharsets.UTF_8));
-            response.getOutputStream().write(buildWorkbookBytes(reportDate, rows, typeLabel));
-            return;
-        }
+        String fileName = "数据操作日报_" + reportDate + "_统一报表.xlsx";
+        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + URLEncoder.encode(fileName, StandardCharsets.UTF_8));
 
-        String zipFileName = "数据操作日报_" + reportDate + "_图文与视频.zip";
-        response.setContentType("application/octet-stream");
-        response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + URLEncoder.encode(zipFileName, StandardCharsets.UTF_8));
-        try (ZipOutputStream zip = new ZipOutputStream(response.getOutputStream(), StandardCharsets.UTF_8)) {
-            writeWorkbookEntry(zip, "数据操作日报_" + reportDate + "_图文.xlsx", reportDate, loadReportRows(reportDate, "IMAGE_TEXT"), "图文");
-            writeWorkbookEntry(zip, "数据操作日报_" + reportDate + "_视频.xlsx", reportDate, loadReportRows(reportDate, "VIDEO"), "视频");
+        try (XSSFWorkbook workbook = new XSSFWorkbook()) {
+            writeDailyWorkbook(workbook, reportDate, rows);
+            workbook.write(response.getOutputStream());
         }
     }
 
-    private void writeWorkbookEntry(ZipOutputStream zip, String fileName, LocalDate reportDate, List<ReportRow> rows, String typeLabel) throws IOException {
-        zip.putNextEntry(new ZipEntry(fileName));
-        zip.write(buildWorkbookBytes(reportDate, rows, typeLabel));
-        zip.closeEntry();
-    }
-
-    private byte[] buildWorkbookBytes(LocalDate reportDate, List<ReportRow> rows, String typeLabel) throws IOException {
-        try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            writeSummarySheet(workbook, reportDate, rows, typeLabel);
-            writeDetailSheet(workbook, rows, typeLabel);
-            writeMetricSheet(workbook, rows, typeLabel);
-            workbook.write(out);
-            return out.toByteArray();
-        }
-    }
-
-    private List<ReportRow> loadReportRows(LocalDate reportDate, String contentType) {
+    private List<ReportRow> loadReportRows(LocalDate reportDate) {
         List<Map<String, Object>> contents = jdbcTemplate.queryForList("""
                 select
                   p.id as package_id,
@@ -85,6 +92,7 @@ public class DataOpsDailyReportExportController {
                   p.display_name as package_name,
                   p.operator_names,
                   p.media_names,
+                  p.anchor_names,
                   t.id as topic_id,
                   t.platform_code,
                   t.platform_name,
@@ -102,9 +110,8 @@ public class DataOpsDailyReportExportController {
                 join data_operation_platform_topic t on t.id = c.platform_topic_id
                 join data_operation_topic_package p on p.id = c.package_id
                 where p.topic_date = ?
-                  and c.content_type = ?
                 order by p.id desc, t.id desc, c.id desc
-                """, Date.valueOf(reportDate), contentType);
+                """, Date.valueOf(reportDate));
         return contents.stream().map(this::buildReportRow).toList();
     }
 
@@ -115,6 +122,7 @@ public class DataOpsDailyReportExportController {
         List<Map<String, Object>> metricRows = topicMetrics.stream()
                 .filter(metric -> contentId != null && contentId.equals(numberToLong(metric.get("contentId"))))
                 .toList();
+
         Map<String, Map<String, Object>> metricsByLabel = new LinkedHashMap<>();
         for (Map<String, Object> metricRow : metricRows) {
             metricsByLabel.putIfAbsent(normalizeLabel(text(metricRow.get("metricLabel"))), metricRow);
@@ -131,171 +139,141 @@ public class DataOpsDailyReportExportController {
         row.contentId = contentId;
         row.contentType = firstNonBlank(text(content.get("content_type")), "IMAGE_TEXT");
         row.contentTypeLabel = contentTypeLabel(row.contentType);
-        row.contentTitle = firstNonBlank(findFirstMetricText(metricRows, "videoTitle"), text(content.get("content_title")));
+        row.contentTitle = firstNonBlank(findFirstMetricText(metricRows, "videoTitle"), findFirstMetricText(metricRows, "contentTitle"), text(content.get("content_title")));
         row.contentSummary = text(content.get("content_summary"));
         row.operatorNames = text(content.get("operator_names"));
         row.mediaNames = text(content.get("media_names"));
+        row.anchorNames = text(content.get("anchor_names"));
         row.recognitionStatus = text(content.get("recognition_status"));
         row.createdAt = text(content.get("created_at"));
         row.metricRows = metricRows;
 
-        row.views = metricText(metricsByLabel, "播放量", "浏览量");
+        row.views = metricText(metricsByLabel, "播放量", "浏览量", "播放", "观看量", "阅读量");
         row.likes = metricText(metricsByLabel, "点赞量", "点赞");
         row.comments = metricText(metricsByLabel, "评论量", "评论");
         row.favorites = metricText(metricsByLabel, "收藏量", "收藏");
-        row.shares = metricText(metricsByLabel, "分享量", "转发量", "转发", "分享");
-        row.newFollowers = metricText(metricsByLabel, "涨粉量", "新增粉丝数", "新增粉丝");
-        row.coverClickRate = metricText(metricsByLabel, "封面点击率");
+        row.newFollowers = metricText(metricsByLabel, "单帖涨粉量", "涨粉量", "新增粉丝数", "新增粉丝");
         row.copyExpandRate = metricText(metricsByLabel, "文案展开率");
-        row.copyReadRate = metricText(metricsByLabel, "文案完读率");
         row.commentEnterRate = metricText(metricsByLabel, "评论进入率");
-        row.completionRate = metricText(metricsByLabel, "完播率");
-        row.fiveSecondCompletionRate = metricText(metricsByLabel, "5s完播率");
-
-        row.viewsLong = toLong(row.views);
-        row.likesLong = toLong(row.likes);
-        row.commentsLong = toLong(row.comments);
-        row.favoritesLong = toLong(row.favorites);
-        row.sharesLong = toLong(row.shares);
-        row.newFollowersLong = toLong(row.newFollowers);
-        row.coverClickRateDouble = toDouble(row.coverClickRate);
-        row.copyExpandRateDouble = toDouble(row.copyExpandRate);
-        row.copyReadRateDouble = toDouble(row.copyReadRate);
-        row.commentEnterRateDouble = toDouble(row.commentEnterRate);
-        row.completionRateDouble = toDouble(row.completionRate);
-        row.fiveSecondCompletionRateDouble = toDouble(row.fiveSecondCompletionRate);
+        row.completionRate = metricText(metricsByLabel, "整体完播率", "完播率");
+        row.fiveSecondCompletionRate = metricText(metricsByLabel, "5S完播率", "5s完播率");
         return row;
     }
 
-    private void writeSummarySheet(XSSFWorkbook workbook, LocalDate reportDate, List<ReportRow> rows, String typeLabel) {
-        XSSFSheet sheet = workbook.createSheet(typeLabel + "主题账号汇总");
-        Row header = sheet.createRow(0);
-        String[] titles = {
-                "日期", "主题包", "平台子主题", "平台", "账号名称", "平台账号ID", "运营人员", "媒体人员",
-                "总播放量", "总点赞量", "总评论量", "总收藏量", "总分享量", "总涨粉量",
-                "平均封面点击率", "平均文案展开率", "平均文案完读率", "平均评论进入率", "平均完播率", "平均5s完播率"
-        };
-        for (int i = 0; i < titles.length; i++) header.createCell(i).setCellValue(titles[i]);
+    private void writeDailyWorkbook(XSSFWorkbook workbook, LocalDate reportDate, List<ReportRow> rows) {
+        Map<String, List<ReportRow>> rowsByPlatform = new LinkedHashMap<>();
+        for (ReportRow row : rows) {
+            rowsByPlatform.computeIfAbsent(row.platformCode, ignored -> new ArrayList<>()).add(row);
+        }
+        if (rowsByPlatform.isEmpty()) {
+            writePlatformSheet(workbook, String.valueOf(reportDate), "DOUYIN", "抖音", List.of());
+            return;
+        }
+        for (Map.Entry<String, List<ReportRow>> entry : rowsByPlatform.entrySet()) {
+            String platformCode = entry.getKey();
+            String platformName = firstNonBlank(entry.getValue().get(0).platformName, platformLabel(platformCode));
+            writePlatformSheet(workbook, String.valueOf(reportDate), platformCode, platformName, entry.getValue());
+        }
+    }
 
-        Map<String, List<ReportRow>> groups = new LinkedHashMap<>();
-        for (ReportRow item : rows) {
-            String key = String.join("|",
-                    item.date,
-                    item.packageName,
-                    item.subTopicName,
-                    item.platformCode,
-                    item.accountName,
-                    item.platformUserId,
-                    item.operatorNames,
-                    item.mediaNames
-            );
-            groups.computeIfAbsent(key, ignored -> new ArrayList<>()).add(item);
+    private void writePlatformSheet(XSSFWorkbook workbook, String reportDate, String platformCode, String platformName, List<ReportRow> rows) {
+        XSSFSheet sheet = workbook.createSheet(sheetName(platformCode, platformName));
+        sheet.createFreezePane(0, 2);
+        setColumnWidths(sheet);
+
+        CellStyle titleStyle = titleStyle(workbook);
+        CellStyle headerStyle = headerStyle(workbook);
+        CellStyle bodyStyle = bodyStyle(workbook);
+        CellStyle centerStyle = centerStyle(workbook);
+
+        Row titleRow = sheet.createRow(0);
+        titleRow.setHeightInPoints(26F);
+        Cell titleCell = titleRow.createCell(0);
+        titleCell.setCellValue(sheetName(platformCode, platformName));
+        titleCell.setCellStyle(titleStyle);
+        sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, DAILY_HEADERS.length - 1));
+        for (int i = 1; i < DAILY_HEADERS.length; i++) {
+            Cell cell = titleRow.createCell(i);
+            cell.setCellStyle(titleStyle);
         }
 
-        if (groups.isEmpty()) {
-            Row row = sheet.createRow(1);
-            row.createCell(0).setCellValue(String.valueOf(reportDate));
-            row.createCell(1).setCellValue("当日无已确认" + typeLabel + "数据");
+        Row header = sheet.createRow(1);
+        header.setHeightInPoints(22F);
+        for (int i = 0; i < DAILY_HEADERS.length; i++) {
+            Cell cell = header.createCell(i);
+            cell.setCellValue(DAILY_HEADERS[i]);
+            cell.setCellStyle(headerStyle);
+        }
+
+        if (rows.isEmpty()) {
+            Row row = sheet.createRow(2);
+            Cell cell = row.createCell(0);
+            cell.setCellValue(reportDate + " 当日无已确认数据");
+            cell.setCellStyle(bodyStyle);
+            sheet.addMergedRegion(new CellRangeAddress(2, 2, 0, DAILY_HEADERS.length - 1));
             return;
         }
 
-        int rowIndex = 1;
-        for (List<ReportRow> groupRows : groups.values()) {
-            ReportRow first = groupRows.get(0);
-            Row row = sheet.createRow(rowIndex++);
-            int c = 0;
-            row.createCell(c++).setCellValue(first.date);
-            row.createCell(c++).setCellValue(first.packageName);
-            row.createCell(c++).setCellValue(first.subTopicName);
-            row.createCell(c++).setCellValue(first.platformName);
-            row.createCell(c++).setCellValue(first.accountName);
-            row.createCell(c++).setCellValue(first.platformUserId);
-            row.createCell(c++).setCellValue(first.operatorNames);
-            row.createCell(c++).setCellValue(first.mediaNames);
-            row.createCell(c++).setCellValue(groupRows.stream().mapToLong(item -> item.viewsLong).sum());
-            row.createCell(c++).setCellValue(groupRows.stream().mapToLong(item -> item.likesLong).sum());
-            row.createCell(c++).setCellValue(groupRows.stream().mapToLong(item -> item.commentsLong).sum());
-            row.createCell(c++).setCellValue(groupRows.stream().mapToLong(item -> item.favoritesLong).sum());
-            row.createCell(c++).setCellValue(groupRows.stream().mapToLong(item -> item.sharesLong).sum());
-            row.createCell(c++).setCellValue(groupRows.stream().mapToLong(item -> item.newFollowersLong).sum());
-            row.createCell(c++).setCellValue(averagePercent(groupRows, item -> item.coverClickRateDouble));
-            row.createCell(c++).setCellValue(averagePercent(groupRows, item -> item.copyExpandRateDouble));
-            row.createCell(c++).setCellValue(averagePercent(groupRows, item -> item.copyReadRateDouble));
-            row.createCell(c++).setCellValue(averagePercent(groupRows, item -> item.commentEnterRateDouble));
-            row.createCell(c++).setCellValue(averagePercent(groupRows, item -> item.completionRateDouble));
-            row.createCell(c).setCellValue(averagePercent(groupRows, item -> item.fiveSecondCompletionRateDouble));
-        }
-    }
+        int rowIndex = 2;
+        int groupStart = rowIndex;
+        String currentOperator = rows.get(0).operatorNames;
+        int currentCount = 0;
 
-    private void writeDetailSheet(XSSFWorkbook workbook, List<ReportRow> rows, String typeLabel) {
-        XSSFSheet sheet = workbook.createSheet(typeLabel + "作品数据明细");
-        Row header = sheet.createRow(0);
-        String[] titles = {"日期", "主题包", "平台子主题", "平台", "账号名称", "平台账号ID", "运营人员", "媒体人员", "作品ID", "作品类型", "作品标题", "内容说明", "播放量", "点赞量", "评论量", "收藏量", "分享量", "涨粉量", "封面点击率", "文案展开率", "文案完读率", "评论进入率", "完播率", "5s完播率", "状态", "创建时间"};
-        for (int i = 0; i < titles.length; i++) header.createCell(i).setCellValue(titles[i]);
-        int rowIndex = 1;
         for (ReportRow item : rows) {
-            Row row = sheet.createRow(rowIndex++);
-            int c = 0;
-            row.createCell(c++).setCellValue(item.date);
-            row.createCell(c++).setCellValue(item.packageName);
-            row.createCell(c++).setCellValue(item.subTopicName);
-            row.createCell(c++).setCellValue(item.platformName);
-            row.createCell(c++).setCellValue(item.accountName);
-            row.createCell(c++).setCellValue(item.platformUserId);
-            row.createCell(c++).setCellValue(item.operatorNames);
-            row.createCell(c++).setCellValue(item.mediaNames);
-            row.createCell(c++).setCellValue(item.contentId == null ? "" : String.valueOf(item.contentId));
-            row.createCell(c++).setCellValue(item.contentTypeLabel);
-            row.createCell(c++).setCellValue(item.contentTitle);
-            row.createCell(c++).setCellValue(item.contentSummary);
-            row.createCell(c++).setCellValue(item.views);
-            row.createCell(c++).setCellValue(item.likes);
-            row.createCell(c++).setCellValue(item.comments);
-            row.createCell(c++).setCellValue(item.favorites);
-            row.createCell(c++).setCellValue(item.shares);
-            row.createCell(c++).setCellValue(item.newFollowers);
-            row.createCell(c++).setCellValue(item.coverClickRate);
-            row.createCell(c++).setCellValue(item.copyExpandRate);
-            row.createCell(c++).setCellValue(item.copyReadRate);
-            row.createCell(c++).setCellValue(item.commentEnterRate);
-            row.createCell(c++).setCellValue(item.completionRate);
-            row.createCell(c++).setCellValue(item.fiveSecondCompletionRate);
-            row.createCell(c++).setCellValue(item.recognitionStatus);
-            row.createCell(c).setCellValue(item.createdAt);
-        }
-    }
-
-    private void writeMetricSheet(XSSFWorkbook workbook, List<ReportRow> rows, String typeLabel) {
-        XSSFSheet sheet = workbook.createSheet(typeLabel + "OCR指标明细");
-        Row header = sheet.createRow(0);
-        String[] titles = {"日期", "主题包", "平台子主题", "平台", "账号名称", "平台账号ID", "运营人员", "媒体人员", "作品ID", "作品类型", "作品标题", "数据页", "来源图片", "数据标签", "识别值", "单位", "状态", "识别时间", "来源"};
-        for (int i = 0; i < titles.length; i++) header.createCell(i).setCellValue(titles[i]);
-        int rowIndex = 1;
-        for (ReportRow item : rows) {
-            for (Map<String, Object> metric : item.metricRows) {
-                Row row = sheet.createRow(rowIndex++);
-                int c = 0;
-                row.createCell(c++).setCellValue(item.date);
-                row.createCell(c++).setCellValue(item.packageName);
-                row.createCell(c++).setCellValue(item.subTopicName);
-                row.createCell(c++).setCellValue(item.platformName);
-                row.createCell(c++).setCellValue(firstNonBlank(text(metric.get("accountName")), item.accountName));
-                row.createCell(c++).setCellValue(firstNonBlank(text(metric.get("platformUserId")), item.platformUserId));
-                row.createCell(c++).setCellValue(item.operatorNames);
-                row.createCell(c++).setCellValue(item.mediaNames);
-                row.createCell(c++).setCellValue(item.contentId == null ? "" : String.valueOf(item.contentId));
-                row.createCell(c++).setCellValue(item.contentTypeLabel);
-                row.createCell(c++).setCellValue(firstNonBlank(text(metric.get("videoTitle")), text(metric.get("contentTitle")), item.contentTitle));
-                row.createCell(c++).setCellValue(metricGroupLabel(text(metric.get("metricGroup"))));
-                row.createCell(c++).setCellValue(assetLabel(metric.get("assetId")));
-                row.createCell(c++).setCellValue(text(metric.get("metricLabel")));
-                row.createCell(c++).setCellValue(metricValueText(metric));
-                row.createCell(c++).setCellValue(text(metric.get("metricUnit")));
-                row.createCell(c++).setCellValue(text(metric.get("recognitionStatus")));
-                row.createCell(c++).setCellValue(text(metric.get("recognizedAt")));
-                row.createCell(c).setCellValue(text(metric.get("source")));
+            if (!sameText(currentOperator, item.operatorNames)) {
+                mergeOperatorAndRemark(sheet, groupStart, rowIndex - 1, currentCount, centerStyle);
+                groupStart = rowIndex;
+                currentOperator = item.operatorNames;
+                currentCount = 0;
             }
+            Row row = sheet.createRow(rowIndex++);
+            row.setHeightInPoints(24F);
+            writeDailyRow(row, item, bodyStyle, centerStyle);
+            currentCount++;
         }
+        mergeOperatorAndRemark(sheet, groupStart, rowIndex - 1, currentCount, centerStyle);
+    }
+
+    private void writeDailyRow(Row row, ReportRow item, CellStyle bodyStyle, CellStyle centerStyle) {
+        int c = 0;
+        setCell(row, c++, item.operatorNames, centerStyle);
+        setCell(row, c++, accountDisplay(item), bodyStyle);
+        setCell(row, c++, item.contentTypeLabel, centerStyle);
+        setCell(row, c++, titleDisplay(item), bodyStyle);
+        setCell(row, c++, countDisplay(item.views), centerStyle);
+        setCell(row, c++, countDisplay(item.likes), centerStyle);
+        setCell(row, c++, countDisplay(item.comments), centerStyle);
+        setCell(row, c++, countDisplay(item.favorites), centerStyle);
+        setCell(row, c++, videoRateDisplay(item.completionRate, item), centerStyle);
+        setCell(row, c++, videoRateDisplay(item.fiveSecondCompletionRate, item), centerStyle);
+        setCell(row, c++, imageTextRateDisplay(item.copyExpandRate, item), centerStyle);
+        setCell(row, c++, imageTextRateDisplay(item.commentEnterRate, item), centerStyle);
+        setCell(row, c++, countDisplay(item.newFollowers), centerStyle);
+        setCell(row, c++, firstNonBlank(item.mediaNames, "/"), centerStyle);
+        setCell(row, c++, firstNonBlank(item.anchorNames, "/"), centerStyle);
+        setCell(row, c++, firstNonBlank(item.date, "/"), centerStyle);
+        setCell(row, c, "", centerStyle);
+    }
+
+    private void mergeOperatorAndRemark(XSSFSheet sheet, int startRow, int endRow, int count, CellStyle centerStyle) {
+        if (startRow > endRow) return;
+        Row start = sheet.getRow(startRow);
+        if (start == null) return;
+        Cell remark = start.getCell(DAILY_HEADERS.length - 1);
+        if (remark == null) remark = start.createCell(DAILY_HEADERS.length - 1);
+        remark.setCellValue(count + "条");
+        remark.setCellStyle(centerStyle);
+
+        if (endRow > startRow) {
+            sheet.addMergedRegion(new CellRangeAddress(startRow, endRow, 0, 0));
+            sheet.addMergedRegion(new CellRangeAddress(startRow, endRow, DAILY_HEADERS.length - 1, DAILY_HEADERS.length - 1));
+        }
+    }
+
+    private void setCell(Row row, int index, String value, CellStyle style) {
+        Cell cell = row.createCell(index);
+        cell.setCellValue(firstNonBlank(value, "/"));
+        cell.setCellStyle(style);
     }
 
     private String findFirstMetricText(List<Map<String, Object>> metricRows, String key) {
@@ -326,29 +304,27 @@ public class DataOpsDailyReportExportController {
         return numeric == null ? "" : stripTrailingZeros(String.valueOf(numeric));
     }
 
-    private double averagePercent(List<ReportRow> rows, PercentExtractor extractor) {
-        double sum = 0D;
-        int count = 0;
-        for (ReportRow row : rows) {
-            double value = extractor.extract(row);
-            if (!Double.isNaN(value)) {
-                sum += value;
-                count++;
-            }
-        }
-        return count == 0 ? 0D : sum / count;
+    private String accountDisplay(ReportRow item) {
+        if (!item.accountName.isBlank() && !item.platformUserId.isBlank()) return item.accountName + "（" + item.platformUserId + "）";
+        return firstNonBlank(item.accountName, item.platformUserId, "/");
     }
 
-    private String metricGroupLabel(String group) {
-        if ("OVERVIEW".equalsIgnoreCase(group)) return "数据页1 · 总览指标";
-        if ("OVERVIEW_CHART".equalsIgnoreCase(group)) return "数据页2 · 趋势/粉丝图表";
-        if ("FLOW_ANALYSIS".equalsIgnoreCase(group)) return "数据页3 · 流量分析";
-        return group;
+    private String titleDisplay(ReportRow item) {
+        return firstNonBlank(item.contentTitle, item.contentSummary, "/");
     }
 
-    private String assetLabel(Object assetId) {
-        Long value = numberToLong(assetId);
-        return value == null ? "" : "来源图片 #" + value;
+    private String countDisplay(String value) {
+        return firstNonBlank(value, "0");
+    }
+
+    private String videoRateDisplay(String value, ReportRow item) {
+        if (!"VIDEO".equalsIgnoreCase(item.contentType)) return "/";
+        return firstNonBlank(value, "/");
+    }
+
+    private String imageTextRateDisplay(String value, ReportRow item) {
+        if ("VIDEO".equalsIgnoreCase(item.contentType)) return "/";
+        return firstNonBlank(value, "/");
     }
 
     private String platformLabel(String code) {
@@ -357,15 +333,20 @@ public class DataOpsDailyReportExportController {
         return "抖音";
     }
 
-    private String contentTypeLabel(String contentType) {
-        return "VIDEO".equalsIgnoreCase(contentType) ? "视频" : "图文";
+    private String sheetName(String platformCode, String platformName) {
+        String name;
+        if ("DOUYIN".equalsIgnoreCase(platformCode)) {
+            name = "抖音 🎵";
+        } else {
+            name = firstNonBlank(platformName, platformLabel(platformCode), "日报");
+        }
+        name = name.replaceAll("[\\\\/?*\\[\\]:]", "").trim();
+        if (name.isBlank()) name = "日报";
+        return name.length() > 31 ? name.substring(0, 31) : name;
     }
 
-    private String normalizeContentType(String contentType) {
-        if (contentType == null) return "";
-        String value = contentType.trim().toUpperCase(Locale.ROOT);
-        if (Objects.equals(value, "IMAGE_TEXT") || Objects.equals(value, "VIDEO")) return value;
-        return "";
+    private String contentTypeLabel(String contentType) {
+        return "VIDEO".equalsIgnoreCase(contentType) ? "视频" : "图文";
     }
 
     private String normalizeLabel(String value) {
@@ -376,20 +357,6 @@ public class DataOpsDailyReportExportController {
         if (value instanceof Number number) return number.longValue();
         if (value == null) return null;
         try { return Long.parseLong(String.valueOf(value)); } catch (Exception ex) { return null; }
-    }
-
-    private long toLong(String value) {
-        if (value == null || value.isBlank()) return 0L;
-        String cleaned = value.replaceAll("[^0-9.\\-]", "").trim();
-        if (cleaned.isEmpty() || "-".equals(cleaned) || ".".equals(cleaned)) return 0L;
-        try { return Math.round(Double.parseDouble(cleaned)); } catch (Exception ex) { return 0L; }
-    }
-
-    private double toDouble(String value) {
-        if (value == null || value.isBlank()) return Double.NaN;
-        String cleaned = value.replaceAll("[^0-9.\\-]", "").trim();
-        if (cleaned.isEmpty() || "-".equals(cleaned) || ".".equals(cleaned)) return Double.NaN;
-        try { return Double.parseDouble(cleaned); } catch (Exception ex) { return Double.NaN; }
     }
 
     private String stripTrailingZeros(String value) {
@@ -409,6 +376,66 @@ public class DataOpsDailyReportExportController {
         return "";
     }
 
+    private boolean sameText(String left, String right) {
+        return firstNonBlank(left).equals(firstNonBlank(right));
+    }
+
+    private void setColumnWidths(XSSFSheet sheet) {
+        int[] widths = {10, 30, 8, 46, 10, 10, 10, 10, 13, 13, 13, 13, 12, 14, 14, 14, 8};
+        for (int i = 0; i < widths.length; i++) {
+            sheet.setColumnWidth(i, widths[i] * 256);
+        }
+    }
+
+    private CellStyle titleStyle(XSSFWorkbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+        style.setFillForegroundColor(IndexedColors.GREY_80_PERCENT.getIndex());
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        style.setAlignment(HorizontalAlignment.CENTER);
+        style.setVerticalAlignment(VerticalAlignment.CENTER);
+        Font font = workbook.createFont();
+        font.setBold(true);
+        font.setFontHeightInPoints((short) 16);
+        font.setColor(IndexedColors.WHITE.getIndex());
+        style.setFont(font);
+        applyThinBorder(style);
+        return style;
+    }
+
+    private CellStyle headerStyle(XSSFWorkbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+        style.setFillForegroundColor(IndexedColors.GREY_80_PERCENT.getIndex());
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        style.setAlignment(HorizontalAlignment.CENTER);
+        style.setVerticalAlignment(VerticalAlignment.CENTER);
+        Font font = workbook.createFont();
+        font.setBold(true);
+        font.setColor(IndexedColors.WHITE.getIndex());
+        style.setFont(font);
+        applyThinBorder(style);
+        return style;
+    }
+
+    private CellStyle bodyStyle(XSSFWorkbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+        style.setVerticalAlignment(VerticalAlignment.CENTER);
+        applyThinBorder(style);
+        return style;
+    }
+
+    private CellStyle centerStyle(XSSFWorkbook workbook) {
+        CellStyle style = bodyStyle(workbook);
+        style.setAlignment(HorizontalAlignment.CENTER);
+        return style;
+    }
+
+    private void applyThinBorder(CellStyle style) {
+        style.setBorderTop(BorderStyle.THIN);
+        style.setBorderRight(BorderStyle.THIN);
+        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderLeft(BorderStyle.THIN);
+    }
+
     private static class ReportRow {
         String date = "";
         String packageName = "";
@@ -424,38 +451,19 @@ public class DataOpsDailyReportExportController {
         String contentSummary = "";
         String operatorNames = "";
         String mediaNames = "";
+        String anchorNames = "";
         String recognitionStatus = "";
         String createdAt = "";
         String views = "";
         String likes = "";
         String comments = "";
         String favorites = "";
-        String shares = "";
         String newFollowers = "";
-        String coverClickRate = "";
         String copyExpandRate = "";
-        String copyReadRate = "";
         String commentEnterRate = "";
         String completionRate = "";
         String fiveSecondCompletionRate = "";
-        long viewsLong;
-        long likesLong;
-        long commentsLong;
-        long favoritesLong;
-        long sharesLong;
-        long newFollowersLong;
-        double coverClickRateDouble = Double.NaN;
-        double copyExpandRateDouble = Double.NaN;
-        double copyReadRateDouble = Double.NaN;
-        double commentEnterRateDouble = Double.NaN;
-        double completionRateDouble = Double.NaN;
-        double fiveSecondCompletionRateDouble = Double.NaN;
         List<Map<String, Object>> metricRows = new ArrayList<>();
-    }
-
-    @FunctionalInterface
-    private interface PercentExtractor {
-        double extract(ReportRow row);
     }
 
     public record DailyReportRequest(LocalDate date, String contentType) {}
