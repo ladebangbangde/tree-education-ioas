@@ -3,25 +3,15 @@
           xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0 https://maven.apache.org/xsd/settings-1.2.0.xsd">
   <profiles>
     <profile>
-      <id>default-repositories</id>
+      <id>central-only</id>
       <repositories>
-        <repository>
-          <id>tencent-public</id>
-          <name>Tencent Cloud Maven Public</name>
-          <url>https://mirrors.cloud.tencent.com/nexus/repository/maven-public/</url>
-          <releases>
-            <enabled>true</enabled>
-          </releases>
-          <snapshots>
-            <enabled>false</enabled>
-          </snapshots>
-        </repository>
         <repository>
           <id>central</id>
           <name>Maven Central</name>
           <url>https://repo.maven.apache.org/maven2</url>
           <releases>
             <enabled>true</enabled>
+            <updatePolicy>daily</updatePolicy>
           </releases>
           <snapshots>
             <enabled>false</enabled>
@@ -30,22 +20,12 @@
       </repositories>
       <pluginRepositories>
         <pluginRepository>
-          <id>tencent-public</id>
-          <name>Tencent Cloud Maven Public</name>
-          <url>https://mirrors.cloud.tencent.com/nexus/repository/maven-public/</url>
-          <releases>
-            <enabled>true</enabled>
-          </releases>
-          <snapshots>
-            <enabled>false</enabled>
-          </snapshots>
-        </pluginRepository>
-        <pluginRepository>
           <id>central</id>
           <name>Maven Central</name>
           <url>https://repo.maven.apache.org/maven2</url>
           <releases>
             <enabled>true</enabled>
+            <updatePolicy>daily</updatePolicy>
           </releases>
           <snapshots>
             <enabled>false</enabled>
@@ -56,6 +36,6 @@
   </profiles>
 
   <activeProfiles>
-    <activeProfile>default-repositories</activeProfile>
+    <activeProfile>central-only</activeProfile>
   </activeProfiles>
 </settings>
