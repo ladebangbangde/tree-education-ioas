@@ -1,18 +1,14 @@
-# syntax=docker/dockerfile:1
-
 FROM maven:3.9.9-eclipse-temurin-17 AS builder
 WORKDIR /app
 
 COPY .mvn/settings.xml /root/.m2/settings.xml
 COPY pom.xml .
-RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B -s /root/.m2/settings.xml \
+RUN mvn -B -s /root/.m2/settings.xml \
     -Dmaven.wagon.http.retryHandler.count=5 \
     dependency:go-offline
 
 COPY src ./src
-RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B -s /root/.m2/settings.xml \
+RUN mvn -B -s /root/.m2/settings.xml \
     -Dmaven.wagon.http.retryHandler.count=5 \
     clean package -DskipTests
 
