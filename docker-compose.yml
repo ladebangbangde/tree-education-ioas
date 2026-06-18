@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      network: host
     image: tree-education-ioas:latest
     container_name: tree-education-ioas
     restart: unless-stopped
