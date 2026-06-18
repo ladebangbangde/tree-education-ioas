@@ -3,13 +3,11 @@ WORKDIR /app
 
 COPY .mvn/settings.xml /root/.m2/settings.xml
 COPY pom.xml .
-RUN mvn -B -s /root/.m2/settings.xml \
-    -Dmaven.wagon.http.retryHandler.count=5 \
-    dependency:go-offline
-
 COPY src ./src
+
 RUN mvn -B -s /root/.m2/settings.xml \
-    -Dmaven.wagon.http.retryHandler.count=5 \
+    -Dmaven.wagon.http.retryHandler.count=10 \
+    -Dmaven.wagon.httpconnectionManager.ttlSeconds=120 \
     clean package -DskipTests
 
 FROM maven:3.9.9-eclipse-temurin-17
