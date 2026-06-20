@@ -4,6 +4,8 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -18,6 +20,7 @@ import java.util.List;
  * use legacy role codes. The report export is still limited to the exact POST endpoint.
  */
 @Component
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class ReportExportAuthenticationFilter extends OncePerRequestFilter {
     private static final String DAILY_REPORT_PATH = "/api/v1/data-ops/reports-export/daily";
 
