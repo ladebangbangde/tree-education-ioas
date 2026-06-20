@@ -15,6 +15,7 @@ import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,6 +36,12 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/data-ops/reports-export")
 public class DataOpsDailyReportExportController {
+    private static final List<PlatformSheet> PLATFORM_SHEETS = List.of(
+            new PlatformSheet("DOUYIN", "抖音"),
+            new PlatformSheet("XIAOHONGSHU", "小红书"),
+            new PlatformSheet("WECHAT_CHANNEL", "视频号")
+    );
+
     private static final String[] DAILY_HEADERS = {
             "运营",
             "账号",
@@ -64,17 +71,18 @@ public class DataOpsDailyReportExportController {
     }
 
     @PostMapping("/daily")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA','ADMINISTRATIVE')")
     public void exportDailyReport(@RequestBody DailyReportRequest request, HttpServletResponse response) throws IOException {
         LocalDate reportDate = request == null || request.date() == null ? LocalDate.now() : request.date();
         List<ReportRow> rows = loadReportRows(reportDate);
         rows.sort(Comparator
-                .comparing((ReportRow row) -> row.platformCode)
+                .comparingInt((ReportRow row) -> platformOrder(row.platformCode))
                 .thenComparing(row -> row.operatorNames)
                 .thenComparing(row -> row.accountName)
                 .thenComparing(row -> row.platformUserId)
                 .thenComparing(row -> row.contentId == null ? 0L : row.contentId));
 
-        String fileName = "数据操作日报_" + reportDate + "_统一报表.xlsx";
+        String fileName = "数据操作日报_" + reportDate + ".xlsx";
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + URLEncoder.encode(fileName, StandardCharsets.UTF_8));
 
@@ -131,8 +139,8 @@ public class DataOpsDailyReportExportController {
         ReportRow row = new ReportRow();
         row.date = firstNonBlank(text(content.get("report_date")), text(content.get("content_date")));
         row.packageName = text(content.get("package_name"));
-        row.platformCode = firstNonBlank(text(content.get("platform_code")), "DOUYIN");
-        row.platformName = firstNonBlank(text(content.get("platform_name")), platformLabel(row.platformCode));
+        row.platformCode = normalizePlatformCode(firstNonBlank(text(content.get("platform_code")), "DOUYIN"));
+        row.platformName = platformLabel(row.platformCode);
         row.accountName = firstNonBlank(findFirstMetricText(metricRows, "accountName"), text(content.get("account_name")));
         row.platformUserId = firstNonBlank(findFirstMetricText(metricRows, "platformUserId"), text(content.get("platform_user_id")));
         row.subTopicName = text(content.get("sub_topic_name"));
@@ -163,16 +171,10 @@ public class DataOpsDailyReportExportController {
     private void writeDailyWorkbook(XSSFWorkbook workbook, LocalDate reportDate, List<ReportRow> rows) {
         Map<String, List<ReportRow>> rowsByPlatform = new LinkedHashMap<>();
         for (ReportRow row : rows) {
-            rowsByPlatform.computeIfAbsent(row.platformCode, ignored -> new ArrayList<>()).add(row);
+            rowsByPlatform.computeIfAbsent(normalizePlatformCode(row.platformCode), ignored -> new ArrayList<>()).add(row);
         }
-        if (rowsByPlatform.isEmpty()) {
-            writePlatformSheet(workbook, String.valueOf(reportDate), "DOUYIN", "抖音", List.of());
-            return;
-        }
-        for (Map.Entry<String, List<ReportRow>> entry : rowsByPlatform.entrySet()) {
-            String platformCode = entry.getKey();
-            String platformName = firstNonBlank(entry.getValue().get(0).platformName, platformLabel(platformCode));
-            writePlatformSheet(workbook, String.valueOf(reportDate), platformCode, platformName, entry.getValue());
+        for (PlatformSheet platform : PLATFORM_SHEETS) {
+            writePlatformSheet(workbook, String.valueOf(reportDate), platform.code(), platform.name(), rowsByPlatform.getOrDefault(platform.code(), List.of()));
         }
     }
 
@@ -327,19 +329,31 @@ public class DataOpsDailyReportExportController {
         return firstNonBlank(value, "/");
     }
 
+    private String normalizePlatformCode(String code) {
+        String normalized = firstNonBlank(code, "DOUYIN").trim().toUpperCase(Locale.ROOT);
+        if ("XHS".equals(normalized) || "REDNOTE".equals(normalized)) return "XIAOHONGSHU";
+        if ("WECHAT".equals(normalized) || "WECHAT_VIDEO".equals(normalized) || "WECHAT_CHANNELS".equals(normalized)) return "WECHAT_CHANNEL";
+        if ("DOUYIN".equals(normalized) || "TIKTOK_CHINA".equals(normalized)) return "DOUYIN";
+        return normalized;
+    }
+
+    private int platformOrder(String code) {
+        String normalized = normalizePlatformCode(code);
+        for (int i = 0; i < PLATFORM_SHEETS.size(); i++) {
+            if (PLATFORM_SHEETS.get(i).code().equals(normalized)) return i;
+        }
+        return PLATFORM_SHEETS.size();
+    }
+
     private String platformLabel(String code) {
-        if ("XIAOHONGSHU".equalsIgnoreCase(code)) return "小红书";
-        if ("WECHAT_CHANNEL".equalsIgnoreCase(code)) return "视频号";
+        String normalized = normalizePlatformCode(code);
+        if ("XIAOHONGSHU".equals(normalized)) return "小红书";
+        if ("WECHAT_CHANNEL".equals(normalized)) return "视频号";
         return "抖音";
     }
 
     private String sheetName(String platformCode, String platformName) {
-        String name;
-        if ("DOUYIN".equalsIgnoreCase(platformCode)) {
-            name = "抖音 🎵";
-        } else {
-            name = firstNonBlank(platformName, platformLabel(platformCode), "日报");
-        }
+        String name = firstNonBlank(platformName, platformLabel(platformCode), "日报");
         name = name.replaceAll("[\\\\/?*\\[\\]:]", "").trim();
         if (name.isBlank()) name = "日报";
         return name.length() > 31 ? name.substring(0, 31) : name;
@@ -435,6 +449,8 @@ public class DataOpsDailyReportExportController {
         style.setBorderBottom(BorderStyle.THIN);
         style.setBorderLeft(BorderStyle.THIN);
     }
+
+    private record PlatformSheet(String code, String name) {}
 
     private static class ReportRow {
         String date = "";
