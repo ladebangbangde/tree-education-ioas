@@ -1,14 +1,22 @@
 package com.treeeducation.ioas.dataops;
 
+import com.treeeducation.ioas.auth.UserPrincipal;
 import com.treeeducation.ioas.common.ApiResponse;
+import com.treeeducation.ioas.common.BusinessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.sql.Date;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @RestController
@@ -33,14 +41,56 @@ public class DataOperationAnchorController {
                 """));
     }
 
+    @PostMapping("/packages-with-anchor")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA')")
+    public ApiResponse<Map<String, Object>> createPackageWithAnchor(@RequestBody CreatePackageWithAnchorRequest request,
+                                                                    @AuthenticationPrincipal UserPrincipal principal) {
+        ensureColumns();
+        if (request == null) throw BusinessException.badRequest("请求不能为空");
+        LocalDate topicDate = request.topicDate() == null ? LocalDate.now() : request.topicDate();
+        List<Long> operatorIds = cleanIds(request.operatorUserIds());
+        List<Long> mediaIds = cleanIds(request.mediaUserIds());
+        List<Long> anchorIds = cleanIds(request.anchorUserIds());
+        if (operatorIds.isEmpty()) throw BusinessException.badRequest("请选择运营人员");
+        if (mediaIds.isEmpty()) throw BusinessException.badRequest("请选择媒体人员");
+        if (anchorIds.isEmpty()) throw BusinessException.badRequest("请选择主播老师");
+
+        String operatorNames = namesOf(operatorIds);
+        String mediaNames = namesOf(mediaIds);
+        String anchorNames = namesOf(anchorIds);
+        String displayName = operatorNames + "+" + mediaNames + "+" + topicDate;
+        String folderName = safeFolder(displayName);
+        String packageNo = "DOP" + topicDate.toString().replace("-", "") + String.format("%04d", Math.abs(Objects.hash(displayName, System.nanoTime())) % 10000);
+
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("packageNo", packageNo)
+                .addValue("topicDate", Date.valueOf(topicDate))
+                .addValue("displayName", displayName)
+                .addValue("folderName", folderName)
+                .addValue("operatorUserIds", joinIds(operatorIds))
+                .addValue("operatorNames", operatorNames)
+                .addValue("mediaUserIds", joinIds(mediaIds))
+                .addValue("mediaNames", mediaNames)
+                .addValue("anchorUserIds", joinIds(anchorIds))
+                .addValue("anchorNames", anchorNames)
+                .addValue("createdBy", principal == null ? 0L : principal.id())
+                .addValue("createdByName", principal == null ? "system" : principal.userName());
+        namedJdbc.update("""
+                insert into data_operation_topic_package
+                (package_no, topic_date, display_name, folder_name, operator_user_ids, operator_names, media_user_ids, media_names, anchor_user_ids, anchor_names, created_by, created_by_name)
+                values (:packageNo, :topicDate, :displayName, :folderName, :operatorUserIds, :operatorNames, :mediaUserIds, :mediaNames, :anchorUserIds, :anchorNames, :createdBy, :createdByName)
+                """, params, keyHolder);
+        Long id = Objects.requireNonNull(keyHolder.getKey()).longValue();
+        return ApiResponse.ok(queryOne("select * from data_operation_topic_package where id = ?", id));
+    }
+
     @PostMapping("/packages/{packageId}/anchors")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA')")
     public ApiResponse<Map<String, Object>> setPackageAnchors(@PathVariable Long packageId, @RequestBody AnchorAssignRequest request) {
         ensureColumns();
-        List<Long> ids = request == null || request.anchorUserIds() == null
-                ? List.of()
-                : request.anchorUserIds().stream().filter(x -> x != null).distinct().toList();
-        String idText = ids.stream().map(String::valueOf).collect(Collectors.joining(","));
+        List<Long> ids = cleanIds(request == null ? null : request.anchorUserIds());
+        String idText = joinIds(ids);
         String names = namesOf(ids);
         jdbc.update("""
                 update data_operation_topic_package
@@ -66,6 +116,16 @@ public class DataOperationAnchorController {
         } catch (RuntimeException ignored) {}
     }
 
+    private List<Long> cleanIds(List<Long> ids) {
+        if (ids == null) return List.of();
+        return ids.stream().filter(Objects::nonNull).distinct().toList();
+    }
+
+    private String joinIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return "";
+        return ids.stream().map(String::valueOf).collect(Collectors.joining(","));
+    }
+
     private String namesOf(List<Long> ids) {
         if (ids == null || ids.isEmpty()) return "";
         MapSqlParameterSource params = new MapSqlParameterSource("ids", ids);
@@ -78,10 +138,17 @@ public class DataOperationAnchorController {
         return names.isEmpty() ? ids.stream().map(String::valueOf).collect(Collectors.joining("+")) : String.join("+", names);
     }
 
+    private String safeFolder(String value) {
+        String text = value == null || value.isBlank() ? "未命名" : value.trim();
+        String cleaned = text.replaceAll("[\\s/:*?\"<>|\\\\]+", "_");
+        return cleaned.length() > 80 ? cleaned.substring(0, 80) : cleaned;
+    }
+
     private Map<String, Object> queryOne(String sql, Object... args) {
         List<Map<String, Object>> rows = jdbc.queryForList(sql, args);
         return rows.isEmpty() ? Map.of() : rows.get(0);
     }
 
     public record AnchorAssignRequest(List<Long> anchorUserIds) {}
+    public record CreatePackageWithAnchorRequest(LocalDate topicDate, List<Long> operatorUserIds, List<Long> mediaUserIds, List<Long> anchorUserIds) {}
 }
