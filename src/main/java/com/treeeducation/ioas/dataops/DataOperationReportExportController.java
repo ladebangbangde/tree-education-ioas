@@ -1,5 +1,18 @@
 package com.treeeducation.ioas.dataops;
 
+import org.apache.poi.ss.usermodel.BorderStyle;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.Font;
+import org.apache.poi.ss.usermodel.HorizontalAlignment;
+import org.apache.poi.ss.usermodel.IndexedColors;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.VerticalAlignment;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.util.CellRangeAddress;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -11,13 +24,29 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.sql.Date;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/data-ops/reports-export")
 public class DataOperationReportExportController {
+    private static final MediaType XLSX_TYPE = MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    private static final List<PlatformSheet> PLATFORMS = List.of(
+            new PlatformSheet("DOUYIN", "抖音 ♪"),
+            new PlatformSheet("XIAOHONGSHU", "小红书"),
+            new PlatformSheet("WECHAT_CHANNEL", "视频号")
+    );
+    private static final String[] HEADERS = {
+            "运营", "账号", "类型", "标题", "播放量", "点赞量", "评论量", "收藏量",
+            "整体完播率", "5S完播率", "文案展开率", "评论进入率", "单帖涨粉量",
+            "负责美工", "负责口播", "发布时间", "备注"
+    };
+
     private final JdbcTemplate jdbc;
 
     public DataOperationReportExportController(JdbcTemplate jdbc) {
@@ -26,39 +55,246 @@ public class DataOperationReportExportController {
 
     @PostMapping("/daily")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA','ADMINISTRATIVE')")
-    public ResponseEntity<byte[]> exportDailyReport(@RequestBody(required = false) DailyReportExportRequest request) {
+    public ResponseEntity<byte[]> exportDailyReport(@RequestBody(required = false) DailyReportExportRequest request) throws Exception {
+        ensurePackageAnchorColumns();
         LocalDate date = request == null || request.date() == null ? LocalDate.now() : request.date();
-        String csv = buildCsv(date);
-        String filename = "data-operation-daily-report-" + date + ".csv";
-        byte[] body = csv.getBytes(StandardCharsets.UTF_8);
-
+        byte[] body = buildWorkbook(date);
+        String filename = "数据操作日报_" + date + ".xlsx";
         return ResponseEntity.ok()
-                .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
-                        .filename(filename, StandardCharsets.UTF_8)
-                        .build()
-                        .toString())
+                .contentType(XLSX_TYPE)
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(filename, StandardCharsets.UTF_8).build().toString())
                 .contentLength(body.length)
                 .body(body);
     }
 
-    private String buildCsv(LocalDate date) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("metric,value\n");
-        sb.append("date,").append(date).append('\n');
-        sb.append("packageCount,").append(count("select count(*) from data_operation_topic_package where topic_date = ?", date)).append('\n');
-        sb.append("contentCount,").append(count("select count(*) from data_operation_content where content_date = ?", date)).append('\n');
-        sb.append("screenshotCount,").append(count("select count(*) from data_operation_asset where asset_type = 'DATA_SCREENSHOT' and date(created_at) = ?", date)).append('\n');
-        sb.append("douyinCount,").append(count("select count(*) from data_operation_content where content_date = ? and platform_code = 'DOUYIN'", date)).append('\n');
-        sb.append("xiaohongshuCount,").append(count("select count(*) from data_operation_content where content_date = ? and platform_code = 'XIAOHONGSHU'", date)).append('\n');
-        sb.append("failedCount,").append(count("select count(*) from data_operation_asset where upload_status = 'failed' and date(created_at) = ?", date)).append('\n');
-        return sb.toString();
+    private byte[] buildWorkbook(LocalDate date) throws Exception {
+        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Styles styles = createStyles(workbook);
+            for (PlatformSheet platform : PLATFORMS) {
+                createPlatformSheet(workbook, styles, platform, date);
+            }
+            workbook.write(out);
+            return out.toByteArray();
+        }
     }
 
-    private Integer count(String sql, LocalDate date) {
-        Integer value = jdbc.queryForObject(sql, Integer.class, Date.valueOf(date));
-        return value == null ? 0 : value;
+    private void createPlatformSheet(Workbook workbook, Styles styles, PlatformSheet platform, LocalDate date) {
+        Sheet sheet = workbook.createSheet(platform.title().replace(" ♪", ""));
+        sheet.setDisplayGridlines(false);
+        sheet.createFreezePane(0, 2);
+
+        Row titleRow = sheet.createRow(0);
+        titleRow.setHeightInPoints(30);
+        Cell titleCell = titleRow.createCell(0);
+        titleCell.setCellValue(platform.title());
+        titleCell.setCellStyle(styles.title());
+        sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, HEADERS.length - 1));
+
+        Row headerRow = sheet.createRow(1);
+        headerRow.setHeightInPoints(24);
+        for (int i = 0; i < HEADERS.length; i++) {
+            Cell cell = headerRow.createCell(i);
+            cell.setCellValue(HEADERS[i]);
+            cell.setCellStyle(styles.header());
+        }
+
+        List<Map<String, Object>> rows = queryRows(platform.code(), date);
+        int rowIndex = 2;
+        int groupStart = rowIndex;
+        String currentOperator = null;
+
+        for (Map<String, Object> row : rows) {
+            String operator = text(row.get("operator_names"));
+            if (currentOperator != null && !currentOperator.equals(operator)) {
+                mergeOperatorGroup(sheet, groupStart, rowIndex - 1);
+                groupStart = rowIndex;
+            }
+            currentOperator = operator;
+            writeReportRow(sheet, rowIndex++, styles.body(), row, date);
+        }
+        if (currentOperator != null) {
+            mergeOperatorGroup(sheet, groupStart, rowIndex - 1);
+        }
+        if (rows.isEmpty()) {
+            Row empty = sheet.createRow(2);
+            Cell cell = empty.createCell(0);
+            cell.setCellValue("当日暂无" + platform.title().replace(" ♪", "") + "数据");
+            cell.setCellStyle(styles.body());
+            sheet.addMergedRegion(new CellRangeAddress(2, 2, 0, HEADERS.length - 1));
+        }
+
+        int[] widths = {12, 28, 10, 46, 11, 10, 10, 10, 14, 12, 12, 12, 12, 14, 16, 14, 10};
+        for (int i = 0; i < widths.length; i++) sheet.setColumnWidth(i, widths[i] * 256);
+    }
+
+    private void writeReportRow(Sheet sheet, int rowIndex, CellStyle style, Map<String, Object> row, LocalDate date) {
+        Map<String, String> metrics = queryMetrics(number(row.get("content_id")));
+        String accountName = firstText(row.get("account_name"), row.get("ocr_account_name"), "未识别账号");
+        String accountId = firstText(row.get("platform_user_id"), row.get("ocr_platform_user_id"), "");
+        String account = accountId.isBlank() ? accountName : accountName + "（" + accountId + "）";
+        String title = firstText(row.get("content_title"), row.get("video_title"), row.get("ocr_content_title"), "未命名内容");
+        String type = "VIDEO".equalsIgnoreCase(text(row.get("content_type"))) ? "视频" : "图文";
+        String publishDate = firstText(row.get("content_date"), date.toString());
+
+        Object[] values = {
+                text(row.get("operator_names")), account, type, title,
+                metric(metrics, "view_count"), metric(metrics, "like_count"), metric(metrics, "comment_count"), metric(metrics, "favorite_count"),
+                metric(metrics, "completion_rate"), metric(metrics, "five_second_completion_rate"), metric(metrics, "copy_expand_rate"), metric(metrics, "comment_enter_rate"), metric(metrics, "follower_gain"),
+                firstText(row.get("media_names"), "无"), firstText(row.get("anchor_names"), "无"), publishDate, ""
+        };
+        Row excelRow = sheet.createRow(rowIndex);
+        excelRow.setHeightInPoints(26);
+        for (int i = 0; i < values.length; i++) {
+            Cell cell = excelRow.createCell(i);
+            cell.setCellValue(String.valueOf(values[i]));
+            cell.setCellStyle(style);
+        }
+    }
+
+    private void mergeOperatorGroup(Sheet sheet, int start, int end) {
+        if (start > end) return;
+        int count = end - start + 1;
+        Row row = sheet.getRow(start);
+        if (row != null) {
+            Cell remark = row.getCell(16);
+            if (remark == null) remark = row.createCell(16);
+            remark.setCellValue(count + "条");
+        }
+        if (start == end) return;
+        sheet.addMergedRegion(new CellRangeAddress(start, end, 0, 0));
+        sheet.addMergedRegion(new CellRangeAddress(start, end, 16, 16));
+    }
+
+    private List<Map<String, Object>> queryRows(String platformCode, LocalDate date) {
+        return jdbc.queryForList("""
+                select p.operator_names,
+                       p.media_names,
+                       p.anchor_names,
+                       pt.ocr_account_name,
+                       pt.ocr_platform_user_id,
+                       pt.ocr_content_title,
+                       a.account_name,
+                       a.platform_user_id,
+                       v.video_title,
+                       c.id as content_id,
+                       c.content_type,
+                       c.content_title,
+                       c.content_date
+                from data_operation_content c
+                join data_operation_topic_package p on p.id = c.package_id
+                left join data_operation_platform_topic pt on pt.id = c.platform_topic_id
+                left join data_operation_account a on a.id = c.account_id
+                left join data_operation_video v on v.id = c.video_id
+                where c.content_date = ? and c.platform_code = ?
+                order by coalesce(p.operator_names, ''), coalesce(a.account_name, pt.ocr_account_name, ''), c.id
+                """, Date.valueOf(date), platformCode);
+    }
+
+    private Map<String, String> queryMetrics(Long contentId) {
+        if (contentId == null) return Map.of();
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+                select metric_key, metric_value
+                from data_operation_metric_value
+                where content_id = ?
+                order by coalesce(asset_id, 0), id
+                """, contentId);
+        Map<String, String> result = new LinkedHashMap<>();
+        for (Map<String, Object> row : rows) {
+            String key = text(row.get("metric_key"));
+            String value = text(row.get("metric_value"));
+            if (!key.isBlank() && !value.isBlank()) result.put(key, value);
+        }
+        return result;
+    }
+
+    private Styles createStyles(Workbook workbook) {
+        Font titleFont = workbook.createFont();
+        titleFont.setBold(true);
+        titleFont.setColor(IndexedColors.WHITE.getIndex());
+        titleFont.setFontHeightInPoints((short) 16);
+
+        Font headerFont = workbook.createFont();
+        headerFont.setBold(true);
+        headerFont.setColor(IndexedColors.WHITE.getIndex());
+        headerFont.setFontHeightInPoints((short) 11);
+
+        CellStyle title = workbook.createCellStyle();
+        title.setFont(titleFont);
+        title.setFillForegroundColor(IndexedColors.GREY_80_PERCENT.getIndex());
+        title.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        title.setAlignment(HorizontalAlignment.CENTER);
+        title.setVerticalAlignment(VerticalAlignment.CENTER);
+
+        CellStyle header = workbook.createCellStyle();
+        header.setFont(headerFont);
+        header.setFillForegroundColor(IndexedColors.GREY_80_PERCENT.getIndex());
+        header.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        header.setAlignment(HorizontalAlignment.CENTER);
+        header.setVerticalAlignment(VerticalAlignment.CENTER);
+        applyBorder(header);
+
+        CellStyle body = workbook.createCellStyle();
+        body.setAlignment(HorizontalAlignment.CENTER);
+        body.setVerticalAlignment(VerticalAlignment.CENTER);
+        body.setWrapText(true);
+        applyBorder(body);
+        return new Styles(title, header, body);
+    }
+
+    private void applyBorder(CellStyle style) {
+        style.setBorderTop(BorderStyle.THIN);
+        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderLeft(BorderStyle.THIN);
+        style.setBorderRight(BorderStyle.THIN);
+    }
+
+    private String metric(Map<String, String> metrics, String key) {
+        String value = metrics.get(key);
+        return value == null || value.isBlank() ? "/" : value;
+    }
+
+    private void ensurePackageAnchorColumns() {
+        ensureColumn("data_operation_topic_package", "anchor_user_ids", "alter table data_operation_topic_package add column anchor_user_ids varchar(500) null after media_names");
+        ensureColumn("data_operation_topic_package", "anchor_names", "alter table data_operation_topic_package add column anchor_names varchar(500) null after anchor_user_ids");
+    }
+
+    private void ensureColumn(String table, String column, String ddl) {
+        try {
+            Integer count = jdbc.queryForObject("""
+                    select count(*)
+                    from information_schema.columns
+                    where table_schema = database() and table_name = ? and column_name = ?
+                    """, Integer.class, table, column);
+            if (count != null && count == 0) jdbc.execute(ddl);
+        } catch (RuntimeException ignored) {}
+    }
+
+    private String firstText(Object first, Object second) {
+        return firstText(first, second, "");
+    }
+
+    private String firstText(Object first, Object second, Object fallback) {
+        String a = text(first);
+        if (!a.isBlank()) return a;
+        String b = text(second);
+        if (!b.isBlank()) return b;
+        return text(fallback);
+    }
+
+    private String text(Object value) {
+        if (value == null) return "";
+        String text = String.valueOf(value).trim();
+        if (text.equalsIgnoreCase("null")) return "";
+        return text;
+    }
+
+    private Long number(Object value) {
+        if (value instanceof Number number) return number.longValue();
+        if (value == null) return null;
+        try { return Long.parseLong(String.valueOf(value)); } catch (NumberFormatException ex) { return null; }
     }
 
     public record DailyReportExportRequest(LocalDate date) {}
+    private record PlatformSheet(String code, String title) {}
+    private record Styles(CellStyle title, CellStyle header, CellStyle body) {}
 }
