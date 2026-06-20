@@ -54,7 +54,6 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/data-ops/assets/*/file").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/data-ops/assets/*/recognize-current").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/data-ops/reports-export/daily").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/official/leads").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/official/leads/").permitAll()
                         .requestMatchers(
