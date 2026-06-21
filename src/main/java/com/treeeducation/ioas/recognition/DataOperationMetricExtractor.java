@@ -9,11 +9,15 @@ import java.util.regex.Pattern;
 @Component
 public class DataOperationMetricExtractor {
     private static final Pattern METRIC_NUMBER = Pattern.compile("[+\\-]?[0-9][0-9,]*(?:\\.[0-9]+)?\\s*(?:%|万|w|W|k|K)?");
-    private static final Set<String> NOISE_TOKENS = Set.of("中国联通4G", "作品数据详情", "总览", "流量分析", "观众分析", "切换作品", "设置观测>", "新增累计", "每小时", "每天", "每小时每天", "DOUO", "DOU+", "粉丝", "流量", "作品状态正常");
+    private static final Set<String> NOISE_TOKENS = Set.of(
+            "中国联通4G", "作品数据详情", "总览", "流量分析", "观众分析", "切换作品", "设置观测>", "新增累计",
+            "每小时", "每天", "每小时每天", "DOUO", "DOU+", "粉丝", "流量", "作品状态正常",
+            "笔记分析详情", "数据概览", "内容分析", "受众分析", "观众来源", "小红书"
+    );
 
     public Map<String, Object> extract(String assetGroup, ImageRecognitionDtos.Response response) {
-        String group = normalizeGroup(assetGroup);
         List<String> lines = lines(rawText(response));
+        String group = normalizeGroup(assetGroup, response, lines);
         LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
         payload.put("assetGroup", group);
         payload.put("schema", schemaName(group));
@@ -25,7 +29,9 @@ public class DataOperationMetricExtractor {
 
     private Map<String, Object> extractMetrics(String group, ImageRecognitionDtos.Response response, List<String> lines) {
         LinkedHashMap<String, Object> metrics = new LinkedHashMap<>();
-        if ("DOUYIN_FLOW_ANALYSIS".equals(group)) {
+        if (group.startsWith("XIAOHONGSHU")) {
+            extractXiaohongshuMetrics(metrics, lines, response);
+        } else if ("DOUYIN_FLOW_ANALYSIS".equals(group)) {
             extractFlowMetrics(metrics, lines, response);
         } else if ("DOUYIN_OVERVIEW_CHART".equals(group)) {
             extractChartMetrics(metrics, lines, response);
@@ -40,6 +46,7 @@ public class DataOperationMetricExtractor {
         addTable(metrics, lines, List.of("播放量", "点赞量", "评论量"), List.of("播放量", "点赞量", "评论量"), "ocr.table.overview.primary");
         addTable(metrics, lines, List.of("分享量", "收藏量", "划走率"), List.of("分享量", "收藏量", "划走率"), "ocr.table.overview.secondary");
         addTable(metrics, lines, List.of("文案展开率", "平均浏览图片数"), List.of("文案展开率", "平均浏览图片数"), "ocr.table.overview.copy");
+        addInline(metrics, lines, "播放量", "播放量", "ocr.text");
         addInline(metrics, lines, "播放量较往期", "播放量较往期", "ocr.text");
         addInline(metrics, lines, "播放量较往期上涨", "播放量较往期上涨", "ocr.text");
         addFromResultMetric(metrics, response, "viewCount", "播放量");
@@ -73,6 +80,73 @@ public class DataOperationMetricExtractor {
         addFromResultMetric(metrics, response, "interactionRate", "互动率");
     }
 
+    private void extractXiaohongshuMetrics(LinkedHashMap<String, Object> metrics, List<String> lines, ImageRecognitionDtos.Response response) {
+        addTable(metrics, lines, List.of("观看数", "互动量", "互动率"), List.of("播放量", "互动量", "互动率"), "xhs.table.overview.core");
+        addTable(metrics, lines, List.of("浏览量", "互动量", "互动率"), List.of("播放量", "互动量", "互动率"), "xhs.table.overview.core");
+        addTable(metrics, lines, List.of("点赞量", "评论量", "收藏量"), List.of("点赞量", "评论量", "收藏量"), "xhs.table.overview.engagement");
+        addTable(metrics, lines, List.of("点赞数", "评论数", "收藏数"), List.of("点赞量", "评论量", "收藏量"), "xhs.table.overview.engagement");
+        addTable(metrics, lines, List.of("点赞", "评论", "收藏"), List.of("点赞量", "评论量", "收藏量"), "xhs.table.overview.engagement");
+        addTable(metrics, lines, List.of("封面点击率", "点赞量", "评论量"), List.of("封面点击率", "点赞量", "评论量"), "xhs.table.detail.card");
+        addTable(metrics, lines, List.of("5s完播率", "完播率"), List.of("5S完播率", "整体完播率"), "xhs.table.video.finish");
+        addTable(metrics, lines, List.of("5S完播率", "全片完播率"), List.of("5S完播率", "整体完播率"), "xhs.table.video.finish");
+
+        addAliases(metrics, lines, List.of("观看数", "浏览量", "播放量", "阅读量"), "播放量", "xhs.text.view");
+        addAliases(metrics, lines, List.of("点赞量", "点赞数", "点赞"), "点赞量", "xhs.text.like");
+        addAliases(metrics, lines, List.of("评论量", "评论数", "评论"), "评论量", "xhs.text.comment");
+        addAliases(metrics, lines, List.of("收藏量", "收藏数", "收藏"), "收藏量", "xhs.text.favorite");
+        addAliases(metrics, lines, List.of("分享量", "分享数", "分享"), "分享量", "xhs.text.share");
+        addAliases(metrics, lines, List.of("单帖涨粉量", "涨粉量", "新增粉丝数", "新增粉丝"), "单帖涨粉量", "xhs.text.follower");
+        addAliases(metrics, lines, List.of("封面点击率", "封面吸引力"), "封面点击率", "xhs.text.cover");
+        if (metrics.containsKey("封面点击率")) metrics.putIfAbsent("文案展开率", metrics.get("封面点击率"));
+        addAliases(metrics, lines, List.of("文案展开率", "正文展开率"), "文案展开率", "xhs.text.copy");
+        addAliases(metrics, lines, List.of("评论进入率", "评论区进入率"), "评论进入率", "xhs.text.comment.enter");
+        addAliases(metrics, lines, List.of("5s完播率", "5S完播率", "5秒完播率"), "5S完播率", "xhs.text.five.second");
+        addAliases(metrics, lines, List.of("全片完播率", "整体完播率", "完播率"), "整体完播率", "xhs.text.completion");
+
+        addFromResultMetric(metrics, response, "viewCount", "播放量");
+        addFromResultMetric(metrics, response, "likeCount", "点赞量");
+        addFromResultMetric(metrics, response, "commentCount", "评论量");
+        addFromResultMetric(metrics, response, "favoriteCount", "收藏量");
+        addFromResultMetric(metrics, response, "shareCount", "分享量");
+        addFromResultMetric(metrics, response, "followerGain", "单帖涨粉量");
+        addFromResultMetric(metrics, response, "coverClickRate", "封面点击率");
+        addFromResultMetric(metrics, response, "copyExpandRate", "文案展开率");
+        addFromResultMetric(metrics, response, "commentEnterRate", "评论进入率");
+        addFromResultMetric(metrics, response, "fiveSecondCompletionRate", "5S完播率");
+        addFromResultMetric(metrics, response, "completionRate", "整体完播率");
+        addFromResultMetric(metrics, response, "fullCompletionRate", "整体完播率");
+    }
+
+    private void addAliases(LinkedHashMap<String, Object> metrics, List<String> lines, List<String> labels, String outputKey, String source) {
+        if (metrics.containsKey(outputKey)) return;
+        for (String label : labels) {
+            String value = valueNearLabel(lines, label);
+            if (value != null) {
+                putMetric(metrics, outputKey, value, source + "." + normalizeMetricName(label));
+                return;
+            }
+        }
+    }
+
+    private String valueNearLabel(List<String> lines, String label) {
+        for (String line : lines) {
+            String normalized = line.replace('：', ':');
+            if (!normalized.contains(label)) continue;
+            String rest = normalized.substring(normalized.indexOf(label) + label.length());
+            String number = firstNumber(rest);
+            if (number != null) return number;
+        }
+        for (int i = 0; i < lines.size(); i++) {
+            if (!sameText(lines.get(i), label) && !lines.get(i).contains(label)) continue;
+            for (int j = i + 1; j < Math.min(lines.size(), i + 6); j++) {
+                String number = firstNumber(lines.get(j));
+                if (number != null) return number;
+                if (isLikelyLabel(lines.get(j))) break;
+            }
+        }
+        return null;
+    }
+
     private void addTable(LinkedHashMap<String, Object> metrics, List<String> lines, List<String> labels, List<String> outputKeys, String source) {
         int start = indexOfSequence(lines, labels);
         if (start < 0) return;
@@ -89,16 +163,8 @@ public class DataOperationMetricExtractor {
     }
 
     private void addInline(LinkedHashMap<String, Object> metrics, List<String> lines, String label, String outputKey, String source) {
-        for (String line : lines) {
-            String normalized = line.replace('：', ':');
-            if (!normalized.contains(label)) continue;
-            String rest = normalized.substring(normalized.indexOf(label) + label.length());
-            String number = firstNumber(rest);
-            if (number != null) {
-                putMetric(metrics, outputKey, number, source);
-                return;
-            }
-        }
+        String value = valueNearLabel(lines, label);
+        if (value != null) putMetric(metrics, outputKey, value, source);
     }
 
     private void addFromResultMetric(LinkedHashMap<String, Object> metrics, ImageRecognitionDtos.Response response, String sourceKey, String targetKey) {
@@ -106,6 +172,7 @@ public class DataOperationMetricExtractor {
         Map<String, Object> result = response == null || response.result() == null ? Map.of() : response.result();
         Map<String, Object> nested = mapValue(result.get("metrics"));
         Object value = nested.get(sourceKey);
+        if (value == null) value = result.get(sourceKey);
         if (value == null || String.valueOf(value).isBlank() || "null".equalsIgnoreCase(String.valueOf(value))) return;
         putMetric(metrics, targetKey, String.valueOf(value), "ocr.metrics." + sourceKey);
     }
@@ -175,7 +242,7 @@ public class DataOperationMetricExtractor {
         if (line == null || line.isBlank()) return false;
         if (isNumberToken(line)) return false;
         if (NOISE_TOKENS.contains(line)) return true;
-        return containsAny(line, List.of("播放量", "点赞量", "评论量", "分享量", "收藏量", "划走率", "封面点击率", "文案展开率", "平均浏览图片数", "文案完读率", "评论进入率", "涨粉量", "脱粉量", "粉丝播放占比"));
+        return containsAny(line, List.of("播放量", "观看数", "浏览量", "点赞量", "点赞数", "评论量", "评论数", "分享量", "收藏量", "收藏数", "划走率", "封面点击率", "文案展开率", "平均浏览图片数", "文案完读率", "评论进入率", "涨粉量", "单帖涨粉量", "脱粉量", "粉丝播放占比", "完播率", "5s完播率", "5S完播率", "全片完播率", "互动量", "互动率"));
     }
 
     private boolean containsAny(String value, List<String> needles) {
@@ -198,7 +265,7 @@ public class DataOperationMetricExtractor {
 
     private String firstNumber(String value) {
         if (value == null) return null;
-        String normalized = value.replace('：', ':').replace("，", ",").replace("+", "+");
+        String normalized = value.replace('：', ':').replace("，", ",").replace("＋", "+");
         Matcher matcher = METRIC_NUMBER.matcher(normalized);
         return matcher.find() ? matcher.group().replaceAll("\\s+", "") : null;
     }
@@ -232,8 +299,16 @@ public class DataOperationMetricExtractor {
                 .toList();
     }
 
-    private String normalizeGroup(String value) {
+    private String normalizeGroup(String value, ImageRecognitionDtos.Response response, List<String> lines) {
+        String platform = response == null || response.platform() == null ? "" : response.platform().trim().toUpperCase(Locale.ROOT);
+        String raw = String.join(" ", lines);
+        boolean xhs = "XIAOHONGSHU".equals(platform) || raw.contains("小红书") || raw.contains("笔记分析详情") || raw.contains("观看数") || raw.contains("封面点击率");
         String group = value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+        if (xhs) {
+            if (group.contains("FLOW_ANALYSIS") || raw.contains("全片完播率") || raw.contains("5s完播率") || raw.contains("5S完播率") || raw.contains("评论进入率")) return "XIAOHONGSHU_FLOW_ANALYSIS";
+            if (group.contains("OVERVIEW_CHART")) return "XIAOHONGSHU_OVERVIEW_CHART";
+            return "XIAOHONGSHU_OVERVIEW";
+        }
         if ("DOUYIN_OVERVIEW_CHART".equals(group)) return group;
         if ("DOUYIN_FLOW_ANALYSIS".equals(group)) return group;
         return "DOUYIN_OVERVIEW";
@@ -241,8 +316,8 @@ public class DataOperationMetricExtractor {
 
     private String schemaName(String group) {
         return switch (group) {
-            case "DOUYIN_OVERVIEW_CHART" -> "总览图表数据";
-            case "DOUYIN_FLOW_ANALYSIS" -> "流量分析";
+            case "DOUYIN_OVERVIEW_CHART", "XIAOHONGSHU_OVERVIEW_CHART" -> "总览图表数据";
+            case "DOUYIN_FLOW_ANALYSIS", "XIAOHONGSHU_FLOW_ANALYSIS" -> "流量分析";
             default -> "总览指标";
         };
     }
@@ -263,11 +338,15 @@ public class DataOperationMetricExtractor {
             case "favoriteCount" -> "收藏量";
             case "shareCount" -> "分享量";
             case "followerCount" -> "粉丝数";
-            case "followerGain" -> "涨粉量";
-            case "completionRate" -> "完播率";
+            case "followerGain" -> "单帖涨粉量";
+            case "completionRate", "fullCompletionRate" -> "整体完播率";
+            case "fiveSecondCompletionRate" -> "5S完播率";
             case "interactionRate" -> "互动率";
             case "averageWatchSeconds" -> "平均观看时长";
             case "profileVisitCount" -> "主页访问量";
+            case "coverClickRate" -> "封面点击率";
+            case "copyExpandRate" -> "文案展开率";
+            case "commentEnterRate" -> "评论进入率";
             default -> null;
         };
     }
