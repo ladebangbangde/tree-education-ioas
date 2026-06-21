@@ -34,7 +34,12 @@ public class DataOperationAnchorController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA')")
     public ApiResponse<List<Map<String, Object>>> anchorUsers() {
         return ApiResponse.ok(jdbc.queryForList("""
-                select id, username, display_name, department, role_code
+                select id,
+                       username,
+                       coalesce(nullif(display_name_zh, ''), display_name, username) as display_name,
+                       display_name_zh,
+                       department,
+                       role_code
                 from sys_user
                 where status = 'ACTIVE' and role_code in ('ANCHOR', 'SUPER_ADMIN')
                 order by field(role_code, 'ANCHOR', 'SUPER_ADMIN'), id desc
@@ -52,8 +57,8 @@ public class DataOperationAnchorController {
         List<Long> mediaIds = cleanIds(request.mediaUserIds());
         List<Long> anchorIds = cleanIds(request.anchorUserIds());
         if (operatorIds.isEmpty()) throw BusinessException.badRequest("请选择运营人员");
-        if (mediaIds.isEmpty()) throw BusinessException.badRequest("请选择媒体人员");
-        if (anchorIds.isEmpty()) throw BusinessException.badRequest("请选择主播老师");
+        if (mediaIds.isEmpty()) throw BusinessException.badRequest("请选择媒体/美工人员");
+        if (anchorIds.isEmpty()) throw BusinessException.badRequest("请选择负责口播人员");
 
         String operatorNames = namesOf(operatorIds);
         String mediaNames = namesOf(mediaIds);
@@ -130,12 +135,12 @@ public class DataOperationAnchorController {
         if (ids == null || ids.isEmpty()) return "";
         MapSqlParameterSource params = new MapSqlParameterSource("ids", ids);
         List<String> names = namedJdbc.queryForList("""
-                select display_name
+                select coalesce(nullif(display_name_zh, ''), display_name, username)
                 from sys_user
                 where id in (:ids)
                 order by field(id, %s)
                 """.formatted(ids.stream().map(String::valueOf).collect(Collectors.joining(","))), params, String.class);
-        return names.isEmpty() ? ids.stream().map(String::valueOf).collect(Collectors.joining("+")) : String.join("+", names);
+        return names.isEmpty() ? ids.stream().map(String::valueOf).collect(Collectors.joining("、")) : String.join("、", names);
     }
 
     private String safeFolder(String value) {
