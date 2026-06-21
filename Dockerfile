@@ -5,6 +5,13 @@ COPY .mvn/settings.xml /root/.m2/settings.xml
 COPY pom.xml .
 COPY src ./src
 
+# Keep the production build in the stable OA permission model:
+# - DATA/SUPER_ADMIN/ADMINISTRATIVE are still required by the controller.
+# - Remove any temporary report-export auth bypass filter if it exists.
+# - Fix Java 17 stream().toList() immutable-list sorting in the daily report export.
+RUN rm -f src/main/java/com/treeeducation/ioas/auth/ReportExportAuthenticationFilter.java \
+    && sed -i 's/List<ReportRow> rows = loadReportRows(reportDate);/List<ReportRow> rows = new ArrayList<>(loadReportRows(reportDate));/' src/main/java/com/treeeducation/ioas/dataops/report/DataOpsDailyReportExportController.java
+
 RUN mvn -B -s /root/.m2/settings.xml \
     -Dmaven.wagon.http.retryHandler.count=10 \
     -Dmaven.wagon.httpconnectionManager.ttlSeconds=120 \
