@@ -22,6 +22,10 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/v1/data-ops")
 public class DataOperationAnchorController {
+    private static final long NONE_OPERATOR_ID = -1L;
+    private static final long NONE_MEDIA_ID = -2L;
+    private static final long NONE_ANCHOR_ID = -3L;
+
     private final JdbcTemplate jdbc;
     private final NamedParameterJdbcTemplate namedJdbc;
 
@@ -53,17 +57,27 @@ public class DataOperationAnchorController {
         ensureColumns();
         if (request == null) throw BusinessException.badRequest("请求不能为空");
         LocalDate topicDate = request.topicDate() == null ? LocalDate.now() : request.topicDate();
-        List<Long> operatorIds = cleanIds(request.operatorUserIds());
-        List<Long> mediaIds = cleanIds(request.mediaUserIds());
-        List<Long> anchorIds = cleanIds(request.anchorUserIds());
-        if (operatorIds.isEmpty()) throw BusinessException.badRequest("请选择运营人员");
-        if (mediaIds.isEmpty()) throw BusinessException.badRequest("请选择媒体/美工人员");
-        if (anchorIds.isEmpty()) throw BusinessException.badRequest("请选择负责口播人员");
 
-        String operatorNames = namesOf(operatorIds);
-        String mediaNames = namesOf(mediaIds);
-        String anchorNames = namesOf(anchorIds);
-        String displayName = operatorNames + "+" + mediaNames + "+" + topicDate;
+        List<Long> rawOperatorIds = request.operatorUserIds() == null ? List.of() : request.operatorUserIds();
+        List<Long> rawMediaIds = request.mediaUserIds() == null ? List.of() : request.mediaUserIds();
+        List<Long> rawAnchorIds = request.anchorUserIds() == null ? List.of() : request.anchorUserIds();
+
+        boolean noneOperator = hasNone(rawOperatorIds, NONE_OPERATOR_ID);
+        boolean noneMedia = hasNone(rawMediaIds, NONE_MEDIA_ID);
+        boolean noneAnchor = hasNone(rawAnchorIds, NONE_ANCHOR_ID);
+
+        List<Long> operatorIds = cleanIds(rawOperatorIds, NONE_OPERATOR_ID);
+        List<Long> mediaIds = cleanIds(rawMediaIds, NONE_MEDIA_ID);
+        List<Long> anchorIds = cleanIds(rawAnchorIds, NONE_ANCHOR_ID);
+
+        if (operatorIds.isEmpty() && !noneOperator) throw BusinessException.badRequest("请选择运营人员");
+        if (mediaIds.isEmpty() && !noneMedia) throw BusinessException.badRequest("请选择媒体/美工人员");
+        if (anchorIds.isEmpty() && !noneAnchor) throw BusinessException.badRequest("请选择负责口播人员");
+
+        String operatorNames = noneOperator ? "无运营" : namesOf(operatorIds);
+        String mediaNames = noneMedia ? "无美工" : namesOf(mediaIds);
+        String anchorNames = noneAnchor ? "无主播" : namesOf(anchorIds);
+        String displayName = operatorNames + "+" + mediaNames + "+" + anchorNames + "+" + topicDate;
         String folderName = safeFolder(displayName);
         String packageNo = "DOP" + topicDate.toString().replace("-", "") + String.format("%04d", Math.abs(Objects.hash(displayName, System.nanoTime())) % 10000);
 
@@ -94,9 +108,11 @@ public class DataOperationAnchorController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','DATA')")
     public ApiResponse<Map<String, Object>> setPackageAnchors(@PathVariable Long packageId, @RequestBody AnchorAssignRequest request) {
         ensureColumns();
-        List<Long> ids = cleanIds(request == null ? null : request.anchorUserIds());
+        List<Long> rawIds = request == null || request.anchorUserIds() == null ? List.of() : request.anchorUserIds();
+        boolean noneAnchor = hasNone(rawIds, NONE_ANCHOR_ID);
+        List<Long> ids = cleanIds(rawIds, NONE_ANCHOR_ID);
         String idText = joinIds(ids);
-        String names = namesOf(ids);
+        String names = noneAnchor ? "无主播" : namesOf(ids);
         jdbc.update("""
                 update data_operation_topic_package
                 set anchor_user_ids = ?, anchor_names = ?, updated_at = current_timestamp(6)
@@ -121,9 +137,13 @@ public class DataOperationAnchorController {
         } catch (RuntimeException ignored) {}
     }
 
-    private List<Long> cleanIds(List<Long> ids) {
-        if (ids == null) return List.of();
-        return ids.stream().filter(Objects::nonNull).distinct().toList();
+    private boolean hasNone(List<Long> ids, long noneId) {
+        return ids != null && ids.stream().filter(Objects::nonNull).anyMatch(id -> id == noneId);
+    }
+
+    private List<Long> cleanIds(List<Long> ids, long noneId) {
+        if (ids == null || hasNone(ids, noneId)) return List.of();
+        return ids.stream().filter(Objects::nonNull).filter(id -> id > 0).distinct().toList();
     }
 
     private String joinIds(List<Long> ids) {
